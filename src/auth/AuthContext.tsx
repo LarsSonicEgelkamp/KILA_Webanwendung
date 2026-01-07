@@ -159,14 +159,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { ok: false, error: 'missing_fields' };
     }
 
-    const { count, error: countError } = await supabase
-      .from('profiles')
-      .select('id', { count: 'exact', head: true });
-    if (countError) {
-      return { ok: false, error: 'server_error' };
-    }
-    const assignedRole: Role = count === 0 ? 'admin' : 'user';
-
     const { data, error } = await supabase.auth.signUp({
       email,
       password: input.password,
@@ -177,17 +169,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (error) {
       return { ok: false, error: parseAuthError(error.message) };
     }
-    const userId = data.user?.id;
-    if (!userId) {
-      return { ok: false, error: 'server_error' };
-    }
-    const { error: profileError } = await supabase.from('profiles').upsert({
-      id: userId,
-      name,
-      email,
-      role: assignedRole
-    });
-    if (profileError) {
+    if (!data.user) {
       return { ok: false, error: 'server_error' };
     }
     return { ok: true };
