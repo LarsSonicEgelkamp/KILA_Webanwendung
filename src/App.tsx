@@ -1,6 +1,6 @@
 import React from 'react';
-import { Routes, Route, useLocation } from 'react-router-dom';
-import { AppBar, Box, IconButton, Toolbar, Typography } from '@mui/material';
+import { Routes, Route, useLocation, useNavigate } from 'react-router-dom';
+import { AppBar, Box, Button, IconButton, Toolbar, Typography } from '@mui/material';
 import { track } from '@vercel/analytics';
 import { useTranslation } from 'react-i18next';
 import NavBar from './components/NavBar';
@@ -20,6 +20,7 @@ const appBarHeight = 56;
 const App: React.FC = () => {
   const [navOpen, setNavOpen] = React.useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
   const { t } = useTranslation();
   const { user, loading } = useAuth();
   const { activeSection } = useSection();
@@ -105,6 +106,7 @@ const App: React.FC = () => {
   };
 
   const iconColor = navOpen ? '#0088ff' : menuColor;
+  const statusColor = iconColor;
 
   return (
     <Box sx={{ height: '100vh', overflow: 'hidden', bgcolor: '#ffffff' }}>
@@ -122,9 +124,25 @@ const App: React.FC = () => {
         <Toolbar
           sx={{
             minHeight: `${appBarHeight}px`,
-            justifyContent: 'flex-end'
+            justifyContent: 'space-between'
           }}
         >
+          <Box sx={{ pointerEvents: 'auto', pl: { xs: 1, md: 2 } }}>
+            {!loading && !user ? (
+              <Button
+                onClick={() => navigate('/anmeldung/login')}
+                sx={{ color: statusColor, textTransform: 'none' }}
+                variant="text"
+              >
+                Anmelden
+              </Button>
+            ) : null}
+            {!loading && user ? (
+              <Typography sx={{ color: statusColor, fontWeight: 600, fontSize: { xs: '0.9rem', md: '1rem' } }}>
+                Angemeldet als: {user.name}
+              </Typography>
+            ) : null}
+          </Box>
           <IconButton
             onClick={handleToggleNav}
             aria-label={navOpen ? 'Navigation schliessen' : 'Navigation oeffnen'}
