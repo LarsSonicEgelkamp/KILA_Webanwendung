@@ -71,6 +71,13 @@ const resources = {
           login: 'Login',
           signup: 'Sign Up',
           userManagement: 'Benutzerverwaltung'
+        },
+        account: {
+          manage: 'Konto verwalten',
+          settings: 'Einstellungen',
+          history: 'Aenderungshistorie',
+          userManagement: 'Benutzerverwaltung',
+          logout: 'Abmelden'
         }
       },
       auth: {
@@ -177,6 +184,13 @@ const resources = {
           login: 'Login',
           signup: 'Sign Up',
           userManagement: 'User Management'
+        },
+        account: {
+          manage: 'Manage account',
+          settings: 'Settings',
+          history: 'Change history',
+          userManagement: 'User management',
+          logout: 'Sign out'
         }
       },
       auth: {

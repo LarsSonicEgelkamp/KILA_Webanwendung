@@ -3,7 +3,6 @@ import { Box, Button, Typography } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import Login from './Login';
 import SignUp from './SignUp';
-import UserManagement from './UserManagement';
 import kilaMinimalLogo from '../assets/img/KILA_Minimalistisch.png';
 import craneGif from '../assets/gif/crane.gif';
 import { useSection } from '../state/SectionContext';
@@ -281,16 +280,6 @@ const Home: React.FC = () => {
                 {t('menu.registration.signup')}
               </Typography>
               <SignUp embedded />
-            </Box>
-          </Box>
-
-          <Box
-            id="home-user-management"
-            sx={{ bgcolor: '#ffffff', color: '#111111', py: { xs: 6, md: 10 }, px: 2, scrollMarginTop: '90px' }}
-            data-bg="light"
-          >
-            <Box sx={{ maxWidth: 900, mx: 'auto' }}>
-              <UserManagement />
             </Box>
           </Box>
         </>

@@ -2,7 +2,6 @@ import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Box, Button, Drawer, List, ListItemButton, ListItemText, Typography } from '@mui/material';
 import { useTranslation } from 'react-i18next';
-import { useAuth } from '../auth/AuthContext';
 import { SectionId, useSection } from '../state/SectionContext';
 
 type NavBarProps = {
@@ -23,7 +22,7 @@ type Section = {
   items: SectionItem[];
 };
 
-const buildSections = (canManageUsers: boolean): Section[] => [
+const buildSections = (): Section[] => [
   {
     id: 'home',
     labelKey: 'menu.home.label',
@@ -76,10 +75,7 @@ const buildSections = (canManageUsers: boolean): Section[] => [
     labelKey: 'menu.registration.label',
     items: [
       { key: 'menu.registration.login', path: '/anmeldung/login', scrollId: 'home-login' },
-      { key: 'menu.registration.signup', path: '/anmeldung/signup', scrollId: 'home-signup' },
-      ...(canManageUsers
-        ? [{ key: 'menu.registration.userManagement', path: '/anmeldung/user-management', scrollId: 'home-user-management' }]
-        : [])
+      { key: 'menu.registration.signup', path: '/anmeldung/signup', scrollId: 'home-signup' }
     ]
   }
 ];
@@ -100,10 +96,8 @@ const NavBar: React.FC<NavBarProps> = ({ open, width = '50vw', onNavigate }) => 
   const location = useLocation();
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
-  const { user } = useAuth();
   const { activeSection, setActiveSection } = useSection();
-  const canManageUsers = user?.role === 'admin' || user?.role === 'leitung';
-  const sections = React.useMemo(() => buildSections(canManageUsers), [canManageUsers]);
+  const sections = React.useMemo(() => buildSections(), []);
 
   React.useEffect(() => {
     if (location.pathname === '/') {

@@ -1,6 +1,23 @@
 import React from 'react';
 import { Routes, Route, useLocation, useNavigate } from 'react-router-dom';
-import { AppBar, Box, Button, IconButton, Toolbar, Typography } from '@mui/material';
+import {
+  AppBar,
+  Avatar,
+  Box,
+  Button,
+  Divider,
+  IconButton,
+  ListItemIcon,
+  Menu,
+  MenuItem,
+  Toolbar,
+  Typography
+} from '@mui/material';
+import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
+import SettingsIcon from '@mui/icons-material/Settings';
+import HistoryIcon from '@mui/icons-material/History';
+import GroupIcon from '@mui/icons-material/Group';
+import LogoutIcon from '@mui/icons-material/Logout';
 import { track } from '@vercel/analytics';
 import { useTranslation } from 'react-i18next';
 import NavBar from './components/NavBar';
@@ -22,11 +39,12 @@ const App: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { user, loading } = useAuth();
+  const { user, loading, logout } = useAuth();
   const { activeSection } = useSection();
   const isHome = location.pathname === '/';
   const [menuColor, setMenuColor] = React.useState('#ffffff');
   const [showTopHint, setShowTopHint] = React.useState(true);
+  const [accountAnchorEl, setAccountAnchorEl] = React.useState<null | HTMLElement>(null);
   const mainRef = React.useRef<HTMLDivElement | null>(null);
   const lastTrackedRef = React.useRef<{ section?: string; path?: string; role?: string }>({});
 
@@ -107,6 +125,37 @@ const App: React.FC = () => {
 
   const iconColor = navOpen ? '#0088ff' : menuColor;
   const statusColor = iconColor;
+  const roleLabel = user?.role ? t(`auth.roles.${user.role}`) : '';
+  const displayName = user?.name || user?.email || 'User';
+  const isAdmin = user?.role === 'admin';
+  const isStaff = user?.role === 'admin' || user?.role === 'leitung';
+
+  const getInitials = (value: string) =>
+    value
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join('');
+
+  const handleAccountOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setAccountAnchorEl(event.currentTarget);
+  };
+
+  const handleAccountClose = () => {
+    setAccountAnchorEl(null);
+  };
+
+  const handleAccountNavigate = (path: string) => {
+    handleAccountClose();
+    navigate(path);
+  };
+
+  const handleLogout = async () => {
+    handleAccountClose();
+    await logout();
+    navigate('/');
+  };
 
   return (
     <Box sx={{ height: '100vh', overflow: 'hidden', bgcolor: '#ffffff' }}>
@@ -138,9 +187,41 @@ const App: React.FC = () => {
               </Button>
             ) : null}
             {!loading && user ? (
-              <Typography sx={{ color: statusColor, fontWeight: 600, fontSize: { xs: '0.9rem', md: '1rem' } }}>
-                Angemeldet als: {user.name}
-              </Typography>
+              <Button
+                onClick={handleAccountOpen}
+                sx={{
+                  color: statusColor,
+                  textTransform: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  px: 1,
+                  py: 0.4
+                }}
+                variant="text"
+              >
+                <Avatar
+                  sx={{
+                    width: 28,
+                    height: 28,
+                    bgcolor: statusColor === '#ffffff' ? 'rgba(255,255,255,0.2)' : 'rgba(0,136,255,0.15)',
+                    color: statusColor,
+                    fontSize: '0.8rem'
+                  }}
+                >
+                  {getInitials(displayName)}
+                </Avatar>
+                <Box sx={{ textAlign: 'left' }}>
+                  <Typography sx={{ fontWeight: 600, fontSize: { xs: '0.9rem', md: '1rem' } }}>
+                    {displayName}
+                  </Typography>
+                  {roleLabel ? (
+                    <Typography variant="caption" sx={{ color: statusColor, opacity: 0.85 }}>
+                      {roleLabel}
+                    </Typography>
+                  ) : null}
+                </Box>
+              </Button>
             ) : null}
           </Box>
           <IconButton
@@ -185,6 +266,101 @@ const App: React.FC = () => {
           </IconButton>
         </Toolbar>
       </AppBar>
+
+      <Menu
+        anchorEl={accountAnchorEl}
+        open={Boolean(accountAnchorEl)}
+        onClose={handleAccountClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        PaperProps={{
+          sx: {
+            mt: 1,
+            width: 320,
+            bgcolor: '#1f2127',
+            color: '#ffffff',
+            borderRadius: 3,
+            p: 1
+          }
+        }}
+      >
+        <Box sx={{ px: 2, pt: 2, pb: 1, textAlign: 'center' }}>
+          {user?.email ? (
+            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', mb: 1 }}>
+              {user.email}
+            </Typography>
+          ) : null}
+          <Avatar
+            sx={{
+              width: 72,
+              height: 72,
+              mx: 'auto',
+              bgcolor: '#0088ff',
+              fontSize: '1.4rem'
+            }}
+          >
+            {getInitials(displayName)}
+          </Avatar>
+          <Typography sx={{ fontWeight: 700, mt: 1 }}>{displayName}</Typography>
+          {roleLabel ? (
+            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+              {roleLabel}
+            </Typography>
+          ) : null}
+        </Box>
+
+        <Divider sx={{ borderColor: 'rgba(255,255,255,0.08)', my: 1 }} />
+
+        <MenuItem
+          onClick={() => handleAccountNavigate('/konto')}
+          sx={{ color: 'inherit' }}
+        >
+          <ListItemIcon sx={{ color: 'inherit', minWidth: 32 }}>
+            <ManageAccountsIcon fontSize="small" />
+          </ListItemIcon>
+          {t('menu.account.manage')}
+        </MenuItem>
+        <MenuItem
+          onClick={() => handleAccountNavigate('/einstellungen')}
+          sx={{ color: 'inherit' }}
+        >
+          <ListItemIcon sx={{ color: 'inherit', minWidth: 32 }}>
+            <SettingsIcon fontSize="small" />
+          </ListItemIcon>
+          {t('menu.account.settings')}
+        </MenuItem>
+        {isStaff ? (
+          <MenuItem
+            onClick={() => handleAccountNavigate('/aenderungshistorie')}
+            sx={{ color: 'inherit' }}
+          >
+            <ListItemIcon sx={{ color: 'inherit', minWidth: 32 }}>
+              <HistoryIcon fontSize="small" />
+            </ListItemIcon>
+            {t('menu.account.history')}
+          </MenuItem>
+        ) : null}
+        {isAdmin ? (
+          <MenuItem
+            onClick={() => handleAccountNavigate('/anmeldung/user-management')}
+            sx={{ color: 'inherit' }}
+          >
+            <ListItemIcon sx={{ color: 'inherit', minWidth: 32 }}>
+              <GroupIcon fontSize="small" />
+            </ListItemIcon>
+            {t('menu.account.userManagement')}
+          </MenuItem>
+        ) : null}
+
+        <Divider sx={{ borderColor: 'rgba(255,255,255,0.08)', my: 1 }} />
+
+        <MenuItem onClick={handleLogout} sx={{ color: 'inherit' }}>
+          <ListItemIcon sx={{ color: 'inherit', minWidth: 32 }}>
+            <LogoutIcon fontSize="small" />
+          </ListItemIcon>
+          {t('menu.account.logout')}
+        </MenuItem>
+      </Menu>
 
       {isHome ? (
         <Box
@@ -279,6 +455,9 @@ const App: React.FC = () => {
           <Route path="/anmeldung/login" element={<Login />} />
           <Route path="/anmeldung/signup" element={<SignUp />} />
           <Route path="/anmeldung/user-management" element={<UserManagement />} />
+          <Route path="/konto" element={<ContentPage titleKey="menu.account.manage" />} />
+          <Route path="/einstellungen" element={<ContentPage titleKey="menu.account.settings" />} />
+          <Route path="/aenderungshistorie" element={<ContentPage titleKey="menu.account.history" />} />
           <Route path="/team/leitung" element={<ContentPage titleKey="menu.team.leadership" />} />
           <Route path="/team/betreuer" element={<ContentPage titleKey="menu.team.caretakers" />} />
           <Route path="/team/kochteam" element={<ContentPage titleKey="menu.team.kitchen" />} />
