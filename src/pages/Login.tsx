@@ -1,5 +1,7 @@
 import React from 'react';
-import { Box, Button, TextField, Typography } from '@mui/material';
+import { Box, Button, IconButton, InputAdornment, TextField, Typography } from '@mui/material';
+import Visibility from '@mui/icons-material/Visibility';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
@@ -14,6 +16,7 @@ const Login: React.FC<LoginProps> = ({ embedded = false }) => {
   const { user, login, logout } = useAuth();
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
+  const [showPassword, setShowPassword] = React.useState(false);
   const [error, setError] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
 
@@ -27,7 +30,13 @@ const Login: React.FC<LoginProps> = ({ embedded = false }) => {
     const result = await login(email, password);
     setSubmitting(false);
     if (!result.ok) {
-      setError(t('auth.errors.invalidCredentials'));
+      if (result.error === 'invalid_credentials') {
+        setError(t('auth.errors.invalidCredentials'));
+      } else if (result.error === 'server_error') {
+        setError(t('auth.errors.server'));
+      } else {
+        setError(t('auth.errors.invalidCredentials'));
+      }
       return;
     }
     navigate('/');
@@ -61,11 +70,28 @@ const Login: React.FC<LoginProps> = ({ embedded = false }) => {
         />
         <TextField
           label={t('auth.password')}
-          type="password"
+          type={showPassword ? 'text' : 'password'}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           required
           fullWidth
+          InputProps={{
+            endAdornment: (
+              <InputAdornment position="end">
+                <IconButton
+                  aria-label="Passwort anzeigen"
+                  onMouseDown={() => setShowPassword(true)}
+                  onMouseUp={() => setShowPassword(false)}
+                  onMouseLeave={() => setShowPassword(false)}
+                  onTouchStart={() => setShowPassword(true)}
+                  onTouchEnd={() => setShowPassword(false)}
+                  edge="end"
+                >
+                  {showPassword ? <Visibility /> : <VisibilityOff />}
+                </IconButton>
+              </InputAdornment>
+            )
+          }}
         />
         {error ? <Typography color="error">{error}</Typography> : null}
         <Button type="submit" variant="contained" disabled={submitting}>

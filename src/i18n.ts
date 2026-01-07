@@ -86,6 +86,9 @@ const resources = {
         loginRequired: 'Bitte erst anmelden.',
         noAccess: 'Keine Berechtigung.',
         errors: {
+          weakPassword: 'Passwort muss mindestens 6 Zeichen haben.',
+          invalidEmail: 'Ungueltige E-Mail-Adresse.',
+          server: 'Serverfehler. Bitte spaeter erneut versuchen.',
           invalidCredentials: 'E-Mail oder Passwort stimmt nicht.',
           emailInUse: 'E-Mail ist bereits registriert.',
           missingFields: 'Bitte alle Felder ausfüllen.'
@@ -189,6 +192,9 @@ const resources = {
         loginRequired: 'Please log in first.',
         noAccess: 'Not authorized.',
         errors: {
+          weakPassword: 'Password must be at least 6 characters.',
+          invalidEmail: 'Invalid email address.',
+          server: 'Server error. Please try again.',
           invalidCredentials: 'Email or password is incorrect.',
           emailInUse: 'Email is already registered.',
           missingFields: 'Please fill out all fields.'

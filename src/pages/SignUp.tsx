@@ -1,5 +1,7 @@
 import React from 'react';
-import { Box, Button, TextField, Typography } from '@mui/material';
+import { Box, Button, IconButton, InputAdornment, TextField, Typography } from '@mui/material';
+import Visibility from '@mui/icons-material/Visibility';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
@@ -15,6 +17,7 @@ const SignUp: React.FC<SignUpProps> = ({ embedded = false }) => {
   const [name, setName] = React.useState('');
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
+  const [showPassword, setShowPassword] = React.useState(false);
   const [error, setError] = React.useState('');
   const [success, setSuccess] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
@@ -36,6 +39,12 @@ const SignUp: React.FC<SignUpProps> = ({ embedded = false }) => {
     if (!result.ok) {
       if (result.error === 'email_in_use') {
         setError(t('auth.errors.emailInUse'));
+      } else if (result.error === 'weak_password') {
+        setError(t('auth.errors.weakPassword'));
+      } else if (result.error === 'invalid_email') {
+        setError(t('auth.errors.invalidEmail'));
+      } else if (result.error === 'server_error') {
+        setError(t('auth.errors.server'));
       } else {
         setError(t('auth.errors.missingFields'));
       }
@@ -75,11 +84,28 @@ const SignUp: React.FC<SignUpProps> = ({ embedded = false }) => {
         />
         <TextField
           label={t('auth.password')}
-          type="password"
+          type={showPassword ? 'text' : 'password'}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           required
           fullWidth
+          InputProps={{
+            endAdornment: (
+              <InputAdornment position="end">
+                <IconButton
+                  aria-label="Passwort anzeigen"
+                  onMouseDown={() => setShowPassword(true)}
+                  onMouseUp={() => setShowPassword(false)}
+                  onMouseLeave={() => setShowPassword(false)}
+                  onTouchStart={() => setShowPassword(true)}
+                  onTouchEnd={() => setShowPassword(false)}
+                  edge="end"
+                >
+                  {showPassword ? <Visibility /> : <VisibilityOff />}
+                </IconButton>
+              </InputAdornment>
+            )
+          }}
         />
         {error ? <Typography color="error">{error}</Typography> : null}
         {success ? <Typography color="success.main">{success}</Typography> : null}

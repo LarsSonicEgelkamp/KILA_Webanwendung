@@ -18,7 +18,13 @@ type RegisterInput = {
 
 type AuthResult = {
   ok: boolean;
-  error?: 'missing_fields' | 'email_in_use' | 'invalid_credentials' | 'server_error';
+  error?:
+    | 'missing_fields'
+    | 'email_in_use'
+    | 'invalid_credentials'
+    | 'weak_password'
+    | 'invalid_email'
+    | 'server_error';
 };
 
 type AuthContextValue = {
@@ -42,6 +48,12 @@ const parseAuthError = (message?: string | null): AuthResult['error'] => {
   const normalized = message.toLowerCase();
   if (normalized.includes('already registered') || normalized.includes('already exists')) {
     return 'email_in_use';
+  }
+  if (normalized.includes('password')) {
+    return 'weak_password';
+  }
+  if (normalized.includes('invalid email') || (normalized.includes('email') && normalized.includes('invalid'))) {
+    return 'invalid_email';
   }
   if (normalized.includes('invalid login credentials') || normalized.includes('invalid')) {
     return 'invalid_credentials';
