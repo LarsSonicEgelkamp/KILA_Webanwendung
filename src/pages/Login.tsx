@@ -1,9 +1,9 @@
 import React from 'react';
-import { Box, Button, IconButton, InputAdornment, TextField, Typography } from '@mui/material';
+import { Box, Button, IconButton, InputAdornment, Link, TextField, Typography } from '@mui/material';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 
 type LoginProps = {
@@ -98,6 +98,15 @@ const Login: React.FC<LoginProps> = ({ embedded = false }) => {
           {t('auth.login')}
         </Button>
       </Box>
+      {!user ? (
+        <Typography sx={{ mt: 2, fontSize: embedded ? '0.95rem' : '1rem' }}>
+          Noch kein Konto? Dann registriere dich{' '}
+          <Link component={RouterLink} to="/anmeldung/signup" underline="hover">
+            hier
+          </Link>
+          .
+        </Typography>
+      ) : null}
     </Box>
   );
 };
