@@ -1,9 +1,11 @@
 import React from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import { AppBar, Box, IconButton, Toolbar, Typography } from '@mui/material';
+import { track } from '@vercel/analytics';
 import { useTranslation } from 'react-i18next';
 import NavBar from './components/NavBar';
 import RoughNotation from './components/RoughNotation';
+import { useAuth } from './auth/AuthContext';
 import { useSection } from './state/SectionContext';
 import Home from './pages/Home';
 import ContentPage from './pages/ContentPage';
@@ -19,11 +21,13 @@ const App: React.FC = () => {
   const [navOpen, setNavOpen] = React.useState(false);
   const location = useLocation();
   const { t } = useTranslation();
+  const { user, loading } = useAuth();
   const { activeSection } = useSection();
   const isHome = location.pathname === '/';
   const [menuColor, setMenuColor] = React.useState('#ffffff');
   const [showTopHint, setShowTopHint] = React.useState(true);
   const mainRef = React.useRef<HTMLDivElement | null>(null);
+  const lastTrackedRef = React.useRef<{ section?: string; path?: string; role?: string }>({});
 
   const updateMenuColor = React.useCallback(() => {
     const container = mainRef.current;
@@ -76,6 +80,21 @@ const App: React.FC = () => {
       updateMenuColor();
     }
   }, [navOpen, updateMenuColor]);
+
+  React.useEffect(() => {
+    if (loading) {
+      return;
+    }
+    const role = user?.role ?? 'guest';
+    const path = location.pathname;
+    const section = activeSection;
+    const last = lastTrackedRef.current;
+    if (last.section === section && last.path === path && last.role === role) {
+      return;
+    }
+    lastTrackedRef.current = { section, path, role };
+    track('section_view', { section, path, role });
+  }, [activeSection, loading, location.pathname, user?.role]);
 
   const handleToggleNav = () => {
     setNavOpen((prev) => !prev);

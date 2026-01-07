@@ -1,4 +1,5 @@
 import React from 'react';
+import { supabase } from '../lib/supabaseClient';
 
 export type Role = 'admin' | 'leitung' | 'user';
 
@@ -6,7 +7,6 @@ export type User = {
   id: string;
   name: string;
   email: string;
-  password: string;
   role: Role;
 };
 
@@ -14,147 +14,199 @@ type RegisterInput = {
   name: string;
   email: string;
   password: string;
-  role?: Role;
-  autoLogin?: boolean;
 };
 
 type AuthResult = {
   ok: boolean;
-  error?: string;
+  error?: 'missing_fields' | 'email_in_use' | 'invalid_credentials' | 'server_error';
 };
 
 type AuthContextValue = {
   user: User | null;
   users: User[];
-  register: (input: RegisterInput) => AuthResult;
-  login: (email: string, password: string) => AuthResult;
-  logout: () => void;
-  updateRole: (id: string, role: Role) => void;
+  loading: boolean;
+  register: (input: RegisterInput) => Promise<AuthResult>;
+  login: (email: string, password: string) => Promise<AuthResult>;
+  logout: () => Promise<void>;
+  updateRole: (id: string, role: Role) => Promise<AuthResult>;
 };
 
 const AuthContext = React.createContext<AuthContextValue | undefined>(undefined);
 
-const USERS_KEY = 'kila_users';
-const CURRENT_KEY = 'kila_current_user';
-
-const readUsers = (): User[] => {
-  if (typeof window === 'undefined') {
-    return [];
-  }
-  try {
-    const raw = localStorage.getItem(USERS_KEY);
-    if (!raw) {
-      return [];
-    }
-    const parsed = JSON.parse(raw) as User[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
-const readCurrentId = (): string | null => {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  return localStorage.getItem(CURRENT_KEY);
-};
-
-const writeUsers = (users: User[]) => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-};
-
-const writeCurrentId = (id: string | null) => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  if (id) {
-    localStorage.setItem(CURRENT_KEY, id);
-  } else {
-    localStorage.removeItem(CURRENT_KEY);
-  }
-};
-
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
 
-const createId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const parseAuthError = (message?: string | null): AuthResult['error'] => {
+  if (!message) {
+    return 'server_error';
+  }
+  const normalized = message.toLowerCase();
+  if (normalized.includes('already registered') || normalized.includes('already exists')) {
+    return 'email_in_use';
+  }
+  if (normalized.includes('invalid login credentials') || normalized.includes('invalid')) {
+    return 'invalid_credentials';
+  }
+  return 'server_error';
+};
+
+const profileFromRow = (row: {
+  id: string;
+  name: string | null;
+  email: string | null;
+  role: Role | null;
+}): User => ({
+  id: row.id,
+  name: row.name ?? 'User',
+  email: row.email ?? '',
+  role: row.role ?? 'user'
+});
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [users, setUsers] = React.useState<User[]>(() => readUsers());
-  const [user, setUser] = React.useState<User | null>(() => {
-    const currentId = readCurrentId();
-    if (!currentId) {
+  const [users, setUsers] = React.useState<User[]>([]);
+  const [user, setUser] = React.useState<User | null>(null);
+  const [loading, setLoading] = React.useState(true);
+
+  const fetchProfile = React.useCallback(async (id: string, fallback?: { name?: string; email?: string }) => {
+    const { data, error } = await supabase.from('profiles').select('id, name, email, role').eq('id', id).single();
+    if (data) {
+      return profileFromRow(data);
+    }
+    if (error && error.code !== 'PGRST116') {
       return null;
     }
-    return readUsers().find((stored) => stored.id === currentId) ?? null;
-  });
-
-  React.useEffect(() => {
-    writeUsers(users);
-    if (user) {
-      const updated = users.find((stored) => stored.id === user.id);
-      if (updated && updated !== user) {
-        setUser(updated);
-      }
-      if (!updated) {
-        setUser(null);
-      }
+    const profile: User = {
+      id,
+      name: fallback?.name?.trim() || 'User',
+      email: fallback?.email?.trim() || '',
+      role: 'user'
+    };
+    const { error: insertError } = await supabase.from('profiles').insert({
+      id: profile.id,
+      name: profile.name,
+      email: profile.email,
+      role: profile.role
+    });
+    if (insertError) {
+      return null;
     }
-  }, [users, user]);
+    return profile;
+  }, []);
+
+  const refreshUsers = React.useCallback(async () => {
+    const { data } = await supabase.from('profiles').select('id, name, email, role').order('name');
+    setUsers((data ?? []).map(profileFromRow));
+  }, []);
+
+  const setSessionUser = React.useCallback(
+    async (sessionUser: { id: string; email?: string | null; user_metadata?: Record<string, unknown> } | null) => {
+      if (!sessionUser) {
+        setUser(null);
+        setUsers([]);
+        setLoading(false);
+        return;
+      }
+      const profile = await fetchProfile(sessionUser.id, {
+        name: typeof sessionUser.user_metadata?.name === 'string' ? sessionUser.user_metadata.name : undefined,
+        email: sessionUser.email ?? undefined
+      });
+      if (!profile) {
+        setUser(null);
+        setUsers([]);
+        setLoading(false);
+        return;
+      }
+      setUser(profile);
+      if (profile.role === 'admin' || profile.role === 'leitung') {
+        await refreshUsers();
+      } else {
+        setUsers([profile]);
+      }
+      setLoading(false);
+    },
+    [fetchProfile, refreshUsers]
+  );
 
   React.useEffect(() => {
-    writeCurrentId(user ? user.id : null);
-  }, [user]);
+    const bootstrap = async () => {
+      const { data } = await supabase.auth.getSession();
+      await setSessionUser(data.session?.user ?? null);
+    };
+    bootstrap();
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSessionUser(session?.user ?? null);
+    });
+    return () => {
+      data.subscription.unsubscribe();
+    };
+  }, [setSessionUser]);
 
-  const register = (input: RegisterInput): AuthResult => {
+  const register = async (input: RegisterInput): Promise<AuthResult> => {
     const name = input.name.trim();
     const email = normalizeEmail(input.email);
     if (!name || !email || !input.password) {
       return { ok: false, error: 'missing_fields' };
     }
-    if (users.some((stored) => normalizeEmail(stored.email) === email)) {
-      return { ok: false, error: 'email_in_use' };
+
+    const { count, error: countError } = await supabase
+      .from('profiles')
+      .select('id', { count: 'exact', head: true });
+    if (countError) {
+      return { ok: false, error: 'server_error' };
     }
-    const role = input.role ?? (users.length === 0 ? 'admin' : 'user');
-    const newUser: User = {
-      id: createId(),
-      name,
+    const assignedRole: Role = count === 0 ? 'admin' : 'user';
+
+    const { data, error } = await supabase.auth.signUp({
       email,
       password: input.password,
-      role
-    };
-    setUsers((prev) => [...prev, newUser]);
-    if (input.autoLogin !== false) {
-      setUser(newUser);
+      options: {
+        data: { name }
+      }
+    });
+    if (error) {
+      return { ok: false, error: parseAuthError(error.message) };
+    }
+    const userId = data.user?.id;
+    if (!userId) {
+      return { ok: false, error: 'server_error' };
+    }
+    const { error: profileError } = await supabase.from('profiles').upsert({
+      id: userId,
+      name,
+      email,
+      role: assignedRole
+    });
+    if (profileError) {
+      return { ok: false, error: 'server_error' };
     }
     return { ok: true };
   };
 
-  const login = (email: string, password: string): AuthResult => {
-    const normalized = normalizeEmail(email);
-    const found = users.find(
-      (stored) => normalizeEmail(stored.email) === normalized && stored.password === password
-    );
-    if (!found) {
-      return { ok: false, error: 'invalid_credentials' };
+  const login = async (email: string, password: string): Promise<AuthResult> => {
+    const { error } = await supabase.auth.signInWithPassword({
+      email: normalizeEmail(email),
+      password
+    });
+    if (error) {
+      return { ok: false, error: parseAuthError(error.message) };
     }
-    setUser(found);
     return { ok: true };
   };
 
-  const logout = () => {
-    setUser(null);
+  const logout = async () => {
+    await supabase.auth.signOut();
   };
 
-  const updateRole = (id: string, role: Role) => {
-    setUsers((prev) => prev.map((stored) => (stored.id === id ? { ...stored, role } : stored)));
+  const updateRole = async (id: string, role: Role): Promise<AuthResult> => {
+    const { error } = await supabase.from('profiles').update({ role }).eq('id', id);
+    if (error) {
+      return { ok: false, error: 'server_error' };
+    }
+    await refreshUsers();
+    return { ok: true };
   };
 
   return (
-    <AuthContext.Provider value={{ user, users, register, login, logout, updateRole }}>
+    <AuthContext.Provider value={{ user, users, loading, register, login, logout, updateRole }}>
       {children}
     </AuthContext.Provider>
   );

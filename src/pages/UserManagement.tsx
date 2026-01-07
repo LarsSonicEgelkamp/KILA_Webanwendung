@@ -5,7 +5,12 @@ import { Role, useAuth } from '../auth/AuthContext';
 
 const UserManagement: React.FC = () => {
   const { t } = useTranslation();
-  const { user, users, updateRole } = useAuth();
+  const { user, users, updateRole, loading } = useAuth();
+  const [updatingId, setUpdatingId] = React.useState<string | null>(null);
+
+  if (loading) {
+    return null;
+  }
 
   if (!user) {
     return (
@@ -27,6 +32,12 @@ const UserManagement: React.FC = () => {
   const canEdit = user.role === 'admin' || user.role === 'leitung';
 
   const roleOptions: Role[] = canAssignAdmin ? ['admin', 'leitung', 'user'] : ['leitung', 'user'];
+
+  const handleRoleChange = async (id: string, role: Role) => {
+    setUpdatingId(id);
+    await updateRole(id, role);
+    setUpdatingId(null);
+  };
 
   return (
     <Box sx={{ p: { xs: 2, md: 4 }, maxWidth: 640 }}>
@@ -59,8 +70,8 @@ const UserManagement: React.FC = () => {
               <Select
                 size="small"
                 value={item.role}
-                onChange={(event) => updateRole(item.id, event.target.value as Role)}
-                disabled={disableEdit}
+                onChange={(event) => handleRoleChange(item.id, event.target.value as Role)}
+                disabled={disableEdit || updatingId === item.id}
                 sx={{ minWidth: 160 }}
               >
                 {roleOptions.map((role) => (

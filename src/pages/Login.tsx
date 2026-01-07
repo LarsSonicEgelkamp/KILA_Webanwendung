@@ -15,11 +15,17 @@ const Login: React.FC<LoginProps> = ({ embedded = false }) => {
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [error, setError] = React.useState('');
+  const [submitting, setSubmitting] = React.useState(false);
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (submitting) {
+      return;
+    }
     setError('');
-    const result = login(email, password);
+    setSubmitting(true);
+    const result = await login(email, password);
+    setSubmitting(false);
     if (!result.ok) {
       setError(t('auth.errors.invalidCredentials'));
       return;
@@ -62,7 +68,7 @@ const Login: React.FC<LoginProps> = ({ embedded = false }) => {
           fullWidth
         />
         {error ? <Typography color="error">{error}</Typography> : null}
-        <Button type="submit" variant="contained">
+        <Button type="submit" variant="contained" disabled={submitting}>
           {t('auth.login')}
         </Button>
       </Box>
