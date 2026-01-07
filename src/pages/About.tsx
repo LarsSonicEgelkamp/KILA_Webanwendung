@@ -1,9 +1,12 @@
 import React from 'react';
+import { Typography } from '@mui/material';
 
-class About extends React.Component {
-  render() {
-    return <h1>Über uns</h1>;
-  }
-}
+const About: React.FC = () => {
+  return (
+    <Typography variant="h1" color="primary">
+      Įober uns
+    </Typography>
+  );
+};
 
 export default About;
