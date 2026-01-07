@@ -51,26 +51,26 @@ const Home: React.FC = () => {
       { id: 'home-dates', titleKey: 'menu.home.dates', bodyKey: 'home.sections.dates.body' }
     ],
     team: [
-      { id: 'home-team-leitung', titleKey: 'menu.team.leadership' },
-      { id: 'home-team-betreuer', titleKey: 'menu.team.caretakers' },
-      { id: 'home-team-kochteam', titleKey: 'menu.team.kitchen' },
-      { id: 'home-team-qualifikation', titleKey: 'menu.team.training' }
+      { id: 'home-team-leitung', titleKey: 'menu.team.leadership', bodyKey: undefined },
+      { id: 'home-team-betreuer', titleKey: 'menu.team.caretakers', bodyKey: undefined },
+      { id: 'home-team-kochteam', titleKey: 'menu.team.kitchen', bodyKey: undefined },
+      { id: 'home-team-qualifikation', titleKey: 'menu.team.training', bodyKey: undefined }
     ],
     downloads: [
-      { id: 'home-downloads-packliste', titleKey: 'menu.downloads.packlist' },
-      { id: 'home-downloads-consents', titleKey: 'menu.downloads.consents' },
-      { id: 'home-downloads-parents', titleKey: 'menu.downloads.parents' },
-      { id: 'home-downloads-emergency', titleKey: 'menu.downloads.emergency' }
+      { id: 'home-downloads-packliste', titleKey: 'menu.downloads.packlist', bodyKey: undefined },
+      { id: 'home-downloads-consents', titleKey: 'menu.downloads.consents', bodyKey: undefined },
+      { id: 'home-downloads-parents', titleKey: 'menu.downloads.parents', bodyKey: undefined },
+      { id: 'home-downloads-emergency', titleKey: 'menu.downloads.emergency', bodyKey: undefined }
     ],
     gallery: [
-      { id: 'home-gallery-current', titleKey: 'menu.gallery.current' },
-      { id: 'home-gallery-past', titleKey: 'menu.gallery.past' }
+      { id: 'home-gallery-current', titleKey: 'menu.gallery.current', bodyKey: undefined },
+      { id: 'home-gallery-past', titleKey: 'menu.gallery.past', bodyKey: undefined }
     ],
     camp: [
-      { id: 'home-camp-expect', titleKey: 'menu.camp.expect' },
-      { id: 'home-camp-schedule', titleKey: 'menu.camp.schedule' },
-      { id: 'home-camp-games', titleKey: 'menu.camp.games' },
-      { id: 'home-camp-location', titleKey: 'menu.camp.location' }
+      { id: 'home-camp-expect', titleKey: 'menu.camp.expect', bodyKey: undefined },
+      { id: 'home-camp-schedule', titleKey: 'menu.camp.schedule', bodyKey: undefined },
+      { id: 'home-camp-games', titleKey: 'menu.camp.games', bodyKey: undefined },
+      { id: 'home-camp-location', titleKey: 'menu.camp.location', bodyKey: undefined }
     ]
   } as const;
 

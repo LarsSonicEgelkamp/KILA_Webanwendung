@@ -109,7 +109,7 @@ const NavBar: React.FC<NavBarProps> = ({ open, width = '50vw', onNavigate }) => 
     if (location.pathname === '/') {
       return;
     }
-    setActiveSection(sectionForPath(location.pathname, sections));
+    setActiveSection(sectionForPath(location.pathname, sections) as SectionId);
   }, [location.pathname, sections, setActiveSection]);
 
   const active = sections.find((section) => section.id === activeSection) ?? sections[0];

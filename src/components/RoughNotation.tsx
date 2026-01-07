@@ -2,7 +2,7 @@ import React from 'react';
 import { annotate } from 'rough-notation';
 
 type RoughNotationProps = {
-  type: 'underline' | 'box' | 'circle' | 'highlight' | 'strike-through' | 'bracket' | 'crossed-off' | 'arrow';
+  type: 'underline' | 'box' | 'circle' | 'highlight' | 'strike-through' | 'bracket' | 'crossed-off';
   show?: boolean;
   color?: string;
   strokeWidth?: number;
