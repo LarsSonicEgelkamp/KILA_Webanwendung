@@ -1,4 +1,4 @@
-import i18n from 'i18next';
+﻿import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
 const resources = {
@@ -6,23 +6,39 @@ const resources = {
     translation: {
       brand: {
         kila: 'KILA',
-        hoerstel: 'H�rstel'
+        hoerstel: 'Hörstel'
       },
       home: {
         title: {
           line1: 'Kinder',
           line2: 'Lager',
-          line3: 'H�rstel'
+          line3: 'Hörstel'
+        },
+        welcomeMessage:
+          'Willkommen beim Kinderlager Hörstel! Hier findest du alle Infos zu unserem Lager, den Terminen und der Anmeldung.',
+        learnMore: 'erfahre mehr',
+        scrollMe: 'scroll mich',
+        sections: {
+          camp: {
+            body:
+              'Unser Lager bietet Abenteuer, Gemeinschaft und jede Menge Spaß in der Natur. Entdecke, was die Kinder erwartet.'
+          },
+          dates: {
+            body:
+              'Hier findest du alle wichtigen Termine rund um das Lagerjahr, von Anmeldungen bis zu den Camp-Wochen.'
+          },
+          placeholder: {
+            body: 'Inhalte folgen in Kürze.'
+          }
         }
       },
       menu: {
-        footer: 'Kinderlager Hoerstel',
+        footer: 'Kinderlager Hörstel',
         home: {
           label: 'Home',
           welcome: 'Willkommen',
           camp: 'Unser Lager',
-          dates: 'Termine',
-          registration: 'Anmeldung'
+          dates: 'Termine'
         },
         team: {
           label: 'Das Team',
@@ -34,7 +50,7 @@ const resources = {
         downloads: {
           label: 'Downloads',
           packlist: 'Packliste',
-          consents: 'Einverst�ndniserkl�rungen',
+          consents: 'Einverständniserklärungen',
           parents: 'Elterninfos (PDF)',
           emergency: 'Notfallzettel'
         },
@@ -49,6 +65,38 @@ const resources = {
           schedule: 'Tagesablauf',
           games: 'Spiele & Aktionen',
           location: 'Unterkunft & Umgebung'
+        },
+        registration: {
+          label: 'Anmeldung',
+          login: 'Login',
+          signup: 'Sign Up',
+          userManagement: 'Benutzerverwaltung'
+        }
+      },
+      auth: {
+        login: 'Login',
+        signup: 'Sign Up',
+        logout: 'Logout',
+        name: 'Name',
+        email: 'E-Mail',
+        password: 'Passwort',
+        role: 'Rolle',
+        loggedInAs: 'Angemeldet als {{name}} ({{role}}).',
+        firstAdminNote: 'Das erste Konto wird automatisch Admin.',
+        loginRequired: 'Bitte erst anmelden.',
+        noAccess: 'Keine Berechtigung.',
+        errors: {
+          invalidCredentials: 'E-Mail oder Passwort stimmt nicht.',
+          emailInUse: 'E-Mail ist bereits registriert.',
+          missingFields: 'Bitte alle Felder ausfüllen.'
+        },
+        success: {
+          created: 'Konto wurde angelegt.'
+        },
+        roles: {
+          admin: 'Admin',
+          leitung: 'Leitung',
+          user: 'User'
         }
       },
       language: {
@@ -61,23 +109,39 @@ const resources = {
     translation: {
       brand: {
         kila: 'KILA',
-        hoerstel: 'H�rstel'
+        hoerstel: 'Hörstel'
       },
       home: {
         title: {
           line1: 'Kids',
           line2: 'Camp',
-          line3: 'H�rstel'
+          line3: 'Hörstel'
+        },
+        welcomeMessage:
+          'Welcome to Kids Camp Hörstel! Find everything about our camp, important dates, and registration.',
+        learnMore: 'learn more',
+        scrollMe: 'scroll me',
+        sections: {
+          camp: {
+            body:
+              'Our camp is all about adventure, community, and fun in nature. Explore what awaits the kids.'
+          },
+          dates: {
+            body:
+              'Here you can find all key dates for the camp year, from registration to camp weeks.'
+          },
+          placeholder: {
+            body: 'Content coming soon.'
+          }
         }
       },
       menu: {
-        footer: 'Kids Camp Hoerstel',
+        footer: 'Kids Camp Hörstel',
         home: {
           label: 'Home',
           welcome: 'Welcome',
           camp: 'Our Camp',
-          dates: 'Dates',
-          registration: 'Registration'
+          dates: 'Dates'
         },
         team: {
           label: 'The Team',
@@ -104,6 +168,38 @@ const resources = {
           schedule: 'Daily Schedule',
           games: 'Games & Activities',
           location: 'Venue & Surroundings'
+        },
+        registration: {
+          label: 'Registration',
+          login: 'Login',
+          signup: 'Sign Up',
+          userManagement: 'User Management'
+        }
+      },
+      auth: {
+        login: 'Login',
+        signup: 'Sign Up',
+        logout: 'Logout',
+        name: 'Name',
+        email: 'Email',
+        password: 'Password',
+        role: 'Role',
+        loggedInAs: 'Logged in as {{name}} ({{role}}).',
+        firstAdminNote: 'The first account becomes Admin automatically.',
+        loginRequired: 'Please log in first.',
+        noAccess: 'Not authorized.',
+        errors: {
+          invalidCredentials: 'Email or password is incorrect.',
+          emailInUse: 'Email is already registered.',
+          missingFields: 'Please fill out all fields.'
+        },
+        success: {
+          created: 'Account created.'
+        },
+        roles: {
+          admin: 'Admin',
+          leitung: 'Leadership',
+          user: 'User'
         }
       },
       language: {

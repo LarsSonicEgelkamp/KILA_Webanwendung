@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { CssBaseline, ThemeProvider, createTheme } from '@mui/material';
 import App from './App';
+import { AuthProvider } from './auth/AuthContext';
+import { SectionProvider } from './state/SectionContext';
 import './i18n';
 
 const pricedownFace = {
@@ -30,6 +32,10 @@ const theme = createTheme({
     MuiCssBaseline: {
       styleOverrides: {
         '@font-face': [pricedownFace],
+        'html, body, #root': {
+          height: '100%',
+          overflow: 'hidden'
+        },
         body: {
           backgroundColor: '#ffffff'
         }
@@ -43,7 +49,11 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <BrowserRouter>
-        <App />
+        <AuthProvider>
+          <SectionProvider>
+            <App />
+          </SectionProvider>
+        </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>
   </React.StrictMode>
