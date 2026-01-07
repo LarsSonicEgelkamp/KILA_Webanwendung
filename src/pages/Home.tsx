@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box, Button, Typography } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import Login from './Login';
 import SignUp from './SignUp';
@@ -7,12 +7,17 @@ import UserManagement from './UserManagement';
 import kilaMinimalLogo from '../assets/img/KILA_Minimalistisch.png';
 import craneGif from '../assets/gif/crane.gif';
 import { useSection } from '../state/SectionContext';
+import { useAuth } from '../auth/AuthContext';
+import ContentBlocks from '../components/ContentBlocks';
 
 const Home: React.FC = () => {
   const { t } = useTranslation();
   const { activeSection } = useSection();
+  const { user } = useAuth();
   const [showScrollHint, setShowScrollHint] = React.useState(true);
+  const [editingSections, setEditingSections] = React.useState<Record<string, boolean>>({});
   const showHero = activeSection === 'home';
+  const canEdit = user?.role === 'admin' || user?.role === 'leitung';
 
   React.useEffect(() => {
     const container = document.getElementById('main-scroll');
@@ -78,6 +83,10 @@ const Home: React.FC = () => {
     activeSection === 'registration'
       ? []
       : sectionGroups[activeSection as keyof typeof sectionGroups] ?? sectionGroups.home;
+
+  const toggleEditing = (sectionId: string) => {
+    setEditingSections((prev) => ({ ...prev, [sectionId]: !prev[sectionId] }));
+  };
 
   return (
     <Box>
@@ -190,9 +199,29 @@ const Home: React.FC = () => {
             data-bg="light"
           >
             <Box sx={{ maxWidth: 900, mx: 'auto' }}>
-              <Typography variant="h3" sx={{ color: '#0088ff', fontWeight: 700, mb: 2 }}>
-                {t(section.titleKey)}
-              </Typography>
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 2,
+                  flexWrap: 'wrap',
+                  mb: 2
+                }}
+              >
+                <Typography variant="h3" sx={{ color: '#0088ff', fontWeight: 700 }}>
+                  {t(section.titleKey)}
+                </Typography>
+                {canEdit ? (
+                  <Button
+                    variant={editingSections[section.id] ? 'contained' : 'outlined'}
+                    size="small"
+                    onClick={() => toggleEditing(section.id)}
+                  >
+                    {editingSections[section.id] ? 'Editor schliessen' : 'Bearbeiten'}
+                  </Button>
+                ) : null}
+              </Box>
               {isPlaceholder ? (
                 <Box
                   sx={{
@@ -217,6 +246,11 @@ const Home: React.FC = () => {
                   {t(section.bodyKey)}
                 </Typography>
               )}
+              <ContentBlocks
+                sectionId={section.id}
+                canEdit={canEdit}
+                editing={Boolean(editingSections[section.id])}
+              />
             </Box>
           </Box>
         );

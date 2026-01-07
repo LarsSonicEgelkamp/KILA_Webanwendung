@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 declare module '*.png';
+declare module '*.gif';
 
 interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL: string;
