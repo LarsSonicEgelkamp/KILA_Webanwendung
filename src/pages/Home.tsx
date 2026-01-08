@@ -21,7 +21,9 @@ import craneGif from '../assets/gif/crane.gif';
 import { useSection } from '../state/SectionContext';
 import { useAuth } from '../auth/AuthContext';
 import SectionPanel from '../components/SectionPanel';
-import { createContentBlock, listContentBlocks, updateContentBlock } from '../lib/contentBlocks';
+import RoughNotation from '../components/RoughNotation';
+import { BlockType, createContentBlock, listContentBlocks, updateContentBlock } from '../lib/contentBlocks';
+import { createContentSection, listContentSections } from '../lib/contentSections';
 
 const Home: React.FC = () => {
   const { t } = useTranslation();
@@ -31,6 +33,7 @@ const Home: React.FC = () => {
   const theme = useTheme();
   const [showScrollHint, setShowScrollHint] = React.useState(true);
   const [releaseDate, setReleaseDate] = React.useState('2026-07-19');
+  const [releaseSectionId, setReleaseSectionId] = React.useState<string | null>(null);
   const [releaseBlockId, setReleaseBlockId] = React.useState<string | null>(null);
   const [releaseDialogOpen, setReleaseDialogOpen] = React.useState(false);
   const [releaseSaving, setReleaseSaving] = React.useState(false);
@@ -44,7 +47,18 @@ const Home: React.FC = () => {
     let active = true;
     const loadRelease = async () => {
       try {
-        const data = await listContentBlocks('home-release');
+        const sections = await listContentSections('home-release');
+        if (!active) {
+          return;
+        }
+        const releaseSection = sections[0];
+        if (!releaseSection) {
+          setReleaseSectionId(null);
+          setReleaseBlockId(null);
+          return;
+        }
+        setReleaseSectionId(releaseSection.id);
+        const data = await listContentBlocks(releaseSection.id);
         if (!active) {
           return;
         }
@@ -52,6 +66,8 @@ const Home: React.FC = () => {
         if (releaseBlock?.content) {
           setReleaseBlockId(releaseBlock.id);
           setReleaseDate(releaseBlock.content);
+        } else {
+          setReleaseBlockId(null);
         }
       } catch {
         if (active) {
@@ -80,14 +96,28 @@ const Home: React.FC = () => {
   }, [releaseDate]);
 
   const handleReleaseSave = async () => {
+    if (!user) {
+      return;
+    }
     setReleaseSaving(true);
     setReleaseError('');
     try {
+      let sectionId = releaseSectionId;
+      if (!sectionId) {
+        const createdSection = await createContentSection({
+          pageSectionId: 'home-release',
+          title: 'KILA 2026',
+          ownerId: user.id,
+          ownerName: user.name
+        });
+        sectionId = createdSection.id;
+        setReleaseSectionId(sectionId);
+      }
       if (releaseBlockId) {
         await updateContentBlock(releaseBlockId, { content: releaseDate });
       } else {
         const created = await createContentBlock({
-          sectionId: 'home-release',
+          sectionId,
           type: 'text',
           content: releaseDate,
           imageUrl: null,
@@ -197,7 +227,14 @@ const Home: React.FC = () => {
     };
   }, [showHero, showRelease]);
 
-  const sectionGroups = {
+  type SectionConfig = {
+    id: string;
+    titleKey: string;
+    bodyKey?: string;
+    allowedBlockTypes?: BlockType[];
+  };
+
+  const sectionGroups: Record<string, SectionConfig[]> = {
     home: [
       { id: 'home-camp', titleKey: 'menu.home.camp', bodyKey: undefined },
       { id: 'home-dates', titleKey: 'menu.home.dates', bodyKey: undefined }
@@ -213,14 +250,14 @@ const Home: React.FC = () => {
       { id: 'home-team-qualifikation', titleKey: 'menu.team.training', bodyKey: undefined }
     ],
     downloads: [
-      { id: 'home-downloads-packliste', titleKey: 'menu.downloads.packlist', bodyKey: undefined },
-      { id: 'home-downloads-consents', titleKey: 'menu.downloads.consents', bodyKey: undefined },
-      { id: 'home-downloads-parents', titleKey: 'menu.downloads.parents', bodyKey: undefined },
-      { id: 'home-downloads-emergency', titleKey: 'menu.downloads.emergency', bodyKey: undefined }
+      { id: 'home-downloads-packliste', titleKey: 'menu.downloads.packlist', bodyKey: undefined, allowedBlockTypes: ['link'] },
+      { id: 'home-downloads-consents', titleKey: 'menu.downloads.consents', bodyKey: undefined, allowedBlockTypes: ['link'] },
+      { id: 'home-downloads-parents', titleKey: 'menu.downloads.parents', bodyKey: undefined, allowedBlockTypes: ['link'] },
+      { id: 'home-downloads-emergency', titleKey: 'menu.downloads.emergency', bodyKey: undefined, allowedBlockTypes: ['link'] }
     ],
     gallery: [
-      { id: 'home-gallery-current', titleKey: 'menu.gallery.current', bodyKey: undefined },
-      { id: 'home-gallery-past', titleKey: 'menu.gallery.past', bodyKey: undefined }
+      { id: 'home-gallery-current', titleKey: 'menu.gallery.current', bodyKey: undefined, allowedBlockTypes: ['image'] },
+      { id: 'home-gallery-past', titleKey: 'menu.gallery.past', bodyKey: undefined, allowedBlockTypes: ['file', 'link'] }
     ],
     camp: [
       { id: 'home-camp-expect', titleKey: 'menu.camp.expect', bodyKey: undefined },
@@ -228,7 +265,7 @@ const Home: React.FC = () => {
       { id: 'home-camp-games', titleKey: 'menu.camp.games', bodyKey: undefined },
       { id: 'home-camp-location', titleKey: 'menu.camp.location', bodyKey: undefined }
     ]
-  } as const;
+  };
 
   const activeSections =
     activeSection === 'registration'
@@ -392,7 +429,19 @@ const Home: React.FC = () => {
                 color: 'transparent'
               }}
             >
-              {formattedRelease.label}
+              <RoughNotation
+                type="circle"
+                show
+                color="#ff3b3b"
+                strokeWidth={3.5}
+                padding={[6, 16, 8, 16]}
+                iterations={2}
+                animationDuration={1800}
+              >
+                <span style={{ display: 'inline-block', padding: '6px 4px' }}>
+                  {formattedRelease.label}
+                </span>
+              </RoughNotation>
             </Typography>
           </Box>
         </Box>
@@ -420,6 +469,7 @@ const Home: React.FC = () => {
                 placeholderBodyKey="home.sections.placeholder.body"
                 placeholderIconSrc={craneGif}
                 showPlaceholder
+                allowedBlockTypes={section.allowedBlockTypes}
               />
             </Box>
           </Box>

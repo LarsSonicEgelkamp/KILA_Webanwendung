@@ -15,7 +15,6 @@ import {
   useTheme
 } from '@mui/material';
 import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
-import SettingsIcon from '@mui/icons-material/Settings';
 import HistoryIcon from '@mui/icons-material/History';
 import GroupIcon from '@mui/icons-material/Group';
 import LogoutIcon from '@mui/icons-material/Logout';
@@ -59,6 +58,9 @@ const App: React.FC = () => {
   const [hasUnread, setHasUnread] = React.useState(false);
   const mainRef = React.useRef<HTMLDivElement | null>(null);
   const lastTrackedRef = React.useRef<{ section?: string; path?: string; role?: string }>({});
+  const pullStartYRef = React.useRef<number | null>(null);
+  const pullingRef = React.useRef(false);
+  const refreshingRef = React.useRef(false);
 
   const updateMenuColor = React.useCallback(() => {
     const container = mainRef.current;
@@ -105,6 +107,63 @@ const App: React.FC = () => {
       window.removeEventListener('resize', handleResize);
     };
   }, [isHome, updateMenuColor]);
+
+  React.useEffect(() => {
+    const container = mainRef.current;
+    if (!container) {
+      return;
+    }
+    if (!('ontouchstart' in window) && navigator.maxTouchPoints === 0) {
+      return;
+    }
+
+    const handleTouchStart = (event: TouchEvent) => {
+      if (container.scrollTop > 0 || refreshingRef.current) {
+        return;
+      }
+      pullStartYRef.current = event.touches[0]?.clientY ?? null;
+      pullingRef.current = true;
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      if (!pullingRef.current || refreshingRef.current) {
+        return;
+      }
+      const currentY = event.touches[0]?.clientY ?? null;
+      if (pullStartYRef.current === null || currentY === null) {
+        return;
+      }
+    };
+
+    const handleTouchEnd = (event: TouchEvent) => {
+      if (!pullingRef.current || refreshingRef.current) {
+        pullStartYRef.current = null;
+        pullingRef.current = false;
+        return;
+      }
+      const endY = event.changedTouches[0]?.clientY ?? null;
+      const startY = pullStartYRef.current;
+      pullStartYRef.current = null;
+      pullingRef.current = false;
+      if (startY === null || endY === null) {
+        return;
+      }
+      const delta = endY - startY;
+      if (delta > 80) {
+        refreshingRef.current = true;
+        window.location.reload();
+      }
+    };
+
+    container.addEventListener('touchstart', handleTouchStart, { passive: true });
+    container.addEventListener('touchmove', handleTouchMove, { passive: true });
+    container.addEventListener('touchend', handleTouchEnd);
+    return () => {
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, []);
 
   React.useEffect(() => {
     if (!navOpen) {
@@ -395,15 +454,6 @@ const App: React.FC = () => {
             <ManageAccountsIcon fontSize="small" />
           </ListItemIcon>
           {t('menu.account.manage')}
-        </MenuItem>
-        <MenuItem
-          onClick={() => handleAccountNavigate('/einstellungen')}
-          sx={{ color: 'inherit' }}
-        >
-          <ListItemIcon sx={{ color: 'inherit', minWidth: 32 }}>
-            <SettingsIcon fontSize="small" />
-          </ListItemIcon>
-          {t('menu.account.settings')}
         </MenuItem>
         <MenuItem
           onClick={() => handleAccountNavigate('/postfach')}

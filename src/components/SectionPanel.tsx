@@ -14,7 +14,7 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import HistoryIcon from '@mui/icons-material/History';
 import EditIcon from '@mui/icons-material/Edit';
-import SaveIcon from '@mui/icons-material/Save';
+import CheckIcon from '@mui/icons-material/Check';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../auth/AuthContext';
 import ContentBlocks from './ContentBlocks';
@@ -29,7 +29,7 @@ import {
   updateContentSectionTitle
 } from '../lib/contentSections';
 import { diffLines } from '../lib/diffLines';
-import { listContentBlocks } from '../lib/contentBlocks';
+import { BlockType } from '../lib/contentBlocks';
 
 type SectionPanelProps = {
   pageSectionId: string;
@@ -38,6 +38,7 @@ type SectionPanelProps = {
   placeholderBodyKey?: string;
   showPlaceholder: boolean;
   placeholderIconSrc?: string;
+  allowedBlockTypes?: BlockType[];
 };
 
 const SectionPanel: React.FC<SectionPanelProps> = ({
@@ -46,7 +47,8 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
   bodyKey,
   placeholderBodyKey,
   showPlaceholder,
-  placeholderIconSrc
+  placeholderIconSrc,
+  allowedBlockTypes
 }) => {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -59,9 +61,10 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
   const [historyOpen, setHistoryOpen] = React.useState(false);
   const [historyItems, setHistoryItems] = React.useState<SectionHistoryEntry[]>([]);
   const [historySection, setHistorySection] = React.useState<ContentSection | null>(null);
-  const [editingTitleId, setEditingTitleId] = React.useState<string | null>(null);
-  const [titleDraft, setTitleDraft] = React.useState('');
-  const [titleSavingId, setTitleSavingId] = React.useState<string | null>(null);
+  const [titleDrafts, setTitleDrafts] = React.useState<Record<string, string>>({});
+  const [editingSections, setEditingSections] = React.useState<Record<string, boolean>>({});
+  const [commitSignals, setCommitSignals] = React.useState<Record<string, number>>({});
+  const [savingSections, setSavingSections] = React.useState<Record<string, boolean>>({});
 
   const isAdmin = user?.role === 'admin';
   const isStaff = user?.role === 'admin' || user?.role === 'leitung';
@@ -143,50 +146,6 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
     }
   };
 
-  const buildSectionSnapshot = async (section: ContentSection) => {
-    const blocks = await listContentBlocks(section.id);
-    return JSON.stringify(
-      {
-        title: section.title,
-        blocks: blocks.map((block) => ({
-          type: block.type,
-          content: block.content ?? null,
-          imageUrl: block.imageUrl ?? null,
-          width: block.width,
-          orderIndex: block.orderIndex
-        }))
-      },
-      null,
-      2
-    );
-  };
-
-  const handleTitleEdit = (section: ContentSection) => {
-    setEditingTitleId(section.id);
-    setTitleDraft(section.title);
-  };
-
-  const handleTitleSave = async (section: ContentSection) => {
-    if (!titleDraft.trim()) {
-      return;
-    }
-    setTitleSavingId(section.id);
-    setError('');
-    try {
-      const beforeSnapshot = await buildSectionSnapshot(section);
-      const updated = await updateContentSectionTitle(section.id, titleDraft.trim());
-      const afterSnapshot = await buildSectionSnapshot({ ...section, title: updated.title });
-      await handleHistoryRecord(section.id, beforeSnapshot, afterSnapshot);
-      setSections((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
-      setEditingTitleId(null);
-      setTitleDraft('');
-    } catch {
-      setError('Ueberschrift konnte nicht gespeichert werden.');
-    } finally {
-      setTitleSavingId(null);
-    }
-  };
-
   const handleDeleteSection = async (section: ContentSection) => {
     const confirmed = window.confirm(`Abschnitt "${section.title}" wirklich loeschen?`);
     if (!confirmed) {
@@ -198,6 +157,48 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
       setSections((prev) => prev.filter((item) => item.id !== section.id));
     } catch {
       setError('Abschnitt konnte nicht geloescht werden.');
+    }
+  };
+
+  const handleStartEdit = (section: ContentSection) => {
+    setEditingSections((prev) => ({ ...prev, [section.id]: true }));
+    setTitleDrafts((prev) => ({
+      ...prev,
+      [section.id]: prev[section.id] ?? section.title
+    }));
+  };
+
+  const handleCommitEdit = async (section: ContentSection) => {
+    setSavingSections((prev) => ({ ...prev, [section.id]: true }));
+    setError('');
+    const draftTitle = (titleDrafts[section.id] ?? section.title).trim();
+    if (!draftTitle) {
+      setError('Ueberschrift darf nicht leer sein.');
+      setSavingSections((prev) => ({ ...prev, [section.id]: false }));
+      return;
+    }
+    if (draftTitle !== section.title) {
+      try {
+        const updated = await updateContentSectionTitle(section.id, draftTitle);
+        setSections((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      } catch {
+        setError('Ueberschrift konnte nicht gespeichert werden.');
+        setSavingSections((prev) => ({ ...prev, [section.id]: false }));
+        return;
+      }
+    }
+    setCommitSignals((prev) => ({ ...prev, [section.id]: (prev[section.id] ?? 0) + 1 }));
+  };
+
+  const handleCommitComplete = (sectionId: string, success: boolean) => {
+    setSavingSections((prev) => ({ ...prev, [sectionId]: false }));
+    if (success) {
+      setEditingSections((prev) => ({ ...prev, [sectionId]: false }));
+      setTitleDrafts((prev) => {
+        const next = { ...prev };
+        delete next[sectionId];
+        return next;
+      });
     }
   };
 
@@ -259,8 +260,9 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
         <Box sx={{ display: 'grid', gap: 4 }}>
           {sections.map((section) => {
             const canEditSection = isAdmin || section.ownerId === user?.id;
-            const isEditingTitle = editingTitleId === section.id;
-            const isSavingTitle = titleSavingId === section.id;
+            const isEditingSection = Boolean(editingSections[section.id]);
+            const isSavingSection = Boolean(savingSections[section.id]);
+            const titleValue = titleDrafts[section.id] ?? section.title;
             return (
               <Box key={section.id} sx={{ borderRadius: 3, border: '1px solid rgba(0,0,0,0.08)', p: 2 }}>
                 <Box
@@ -274,38 +276,43 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                   }}
                 >
                   <Box sx={{ flex: 1, minWidth: 220 }}>
-                    {isEditingTitle ? (
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <TextField
-                          value={titleDraft}
-                          onChange={(event) => setTitleDraft(event.target.value)}
-                          size="small"
-                          fullWidth
-                        />
-                        <IconButton
-                          color="primary"
-                          onClick={() => handleTitleSave(section)}
-                          disabled={isSavingTitle}
-                        >
-                          <SaveIcon fontSize="small" />
-                        </IconButton>
-                      </Box>
+                    {isEditingSection ? (
+                      <TextField
+                        value={titleValue}
+                        onChange={(event) =>
+                          setTitleDrafts((prev) => ({ ...prev, [section.id]: event.target.value }))
+                        }
+                        size="small"
+                        fullWidth
+                      />
                     ) : (
                       <>
                         <Typography variant="h5" sx={{ fontWeight: 700 }}>
                           {section.title}
                         </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {section.ownerName}
-                        </Typography>
+                        {isStaff ? (
+                          <Typography variant="caption" color="text.secondary">
+                            {section.ownerName}
+                          </Typography>
+                        ) : null}
                       </>
                     )}
                   </Box>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     {canEditSection ? (
-                      <IconButton size="small" onClick={() => handleTitleEdit(section)}>
-                        <EditIcon fontSize="small" />
-                      </IconButton>
+                      isEditingSection ? (
+                        <IconButton
+                          size="small"
+                          onClick={() => handleCommitEdit(section)}
+                          disabled={isSavingSection}
+                        >
+                          <CheckIcon fontSize="small" />
+                        </IconButton>
+                      ) : (
+                        <IconButton size="small" onClick={() => handleStartEdit(section)}>
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      )
                     ) : null}
                     {canEditSection ? (
                       <IconButton size="small" onClick={() => handleDeleteSection(section)}>
@@ -341,7 +348,10 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                     handleHistoryRecord(section.id, beforeSnapshot, afterSnapshot)
                   }
                   canEdit={canEditSection}
-                  editing={canEditSection}
+                  editing={canEditSection && isEditingSection}
+                  allowedBlockTypes={allowedBlockTypes}
+                  commitSignal={commitSignals[section.id]}
+                  onCommitComplete={(success) => handleCommitComplete(section.id, success)}
                 />
               </Box>
             );

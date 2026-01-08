@@ -1,6 +1,6 @@
 import { supabase } from './supabaseClient';
 
-export type BlockType = 'heading' | 'text' | 'image';
+export type BlockType = 'heading' | 'text' | 'image' | 'link' | 'file';
 
 export type ContentBlock = {
   id: string;
@@ -101,6 +101,20 @@ export const deleteContentBlock = async (id: string): Promise<void> => {
 export const uploadContentImage = async (sectionId: string, file: File): Promise<string> => {
   const extension = file.name.split('.').pop() ?? 'png';
   const path = `${sectionId}/${Date.now()}-${Math.random().toString(16).slice(2)}.${extension}`;
+  const { error } = await supabase.storage.from('content').upload(path, file, {
+    cacheControl: '3600',
+    upsert: false
+  });
+  if (error) {
+    throw error;
+  }
+  const { data } = supabase.storage.from('content').getPublicUrl(path);
+  return data.publicUrl;
+};
+
+export const uploadContentFile = async (sectionId: string, file: File): Promise<string> => {
+  const extension = file.name.split('.').pop() ?? 'zip';
+  const path = `${sectionId}/files/${Date.now()}-${Math.random().toString(16).slice(2)}.${extension}`;
   const { error } = await supabase.storage.from('content').upload(path, file, {
     cacheControl: '3600',
     upsert: false

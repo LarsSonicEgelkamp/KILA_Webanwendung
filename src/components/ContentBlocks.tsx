@@ -13,6 +13,8 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ImageIcon from '@mui/icons-material/Image';
+import LinkIcon from '@mui/icons-material/Link';
+import AttachFileIcon from '@mui/icons-material/AttachFile';
 import TextFieldsIcon from '@mui/icons-material/TextFields';
 import TitleIcon from '@mui/icons-material/Title';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
@@ -27,6 +29,7 @@ import {
   deleteContentImage,
   listContentBlocks,
   updateContentBlock,
+  uploadContentFile,
   uploadContentImage
 } from '../lib/contentBlocks';
 
@@ -37,6 +40,9 @@ type ContentBlocksProps = {
   canEdit: boolean;
   editing: boolean;
   onHasBlocksChange?: (hasBlocks: boolean) => void;
+  allowedBlockTypes?: BlockType[];
+  commitSignal?: number;
+  onCommitComplete?: (success: boolean) => void;
 };
 
 type ResizeState = {
@@ -53,7 +59,10 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
   onHistory,
   canEdit,
   editing,
-  onHasBlocksChange
+  onHasBlocksChange,
+  allowedBlockTypes,
+  commitSignal,
+  onCommitComplete
 }) => {
   const [blocks, setBlocks] = React.useState<ContentBlock[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -77,21 +86,28 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
   const [draggingId, setDraggingId] = React.useState<string | null>(null);
   const [dropIndex, setDropIndex] = React.useState<number | null>(null);
   const [cropDialogOpen, setCropDialogOpen] = React.useState(false);
+  const [draftBlocks, setDraftBlocks] = React.useState<ContentBlock[]>([]);
+  const [draftDirty, setDraftDirty] = React.useState(false);
+  const [commitInFlight, setCommitInFlight] = React.useState(false);
   const gridRef = React.useRef<HTMLDivElement | null>(null);
-  const saveTimers = React.useRef<Record<string, number>>({});
-  const latestContent = React.useRef<Record<string, string>>({});
   const blocksRef = React.useRef<ContentBlock[]>([]);
-  const wasEditing = React.useRef(editing);
+  const lastCommitSignal = React.useRef<number | undefined>(undefined);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const baseAllowedTypes = React.useMemo<BlockType[]>(
+    () => allowedBlockTypes ?? ['heading', 'text', 'image'],
+    [allowedBlockTypes]
+  );
 
-  React.useEffect(
-    () => () => {
-      Object.values(saveTimers.current).forEach((timerId) => window.clearTimeout(timerId));
-      saveTimers.current = {};
+  const updateDraftBlocks = React.useCallback(
+    (next: ContentBlock[] | ((prev: ContentBlock[]) => ContentBlock[])) => {
+      setDraftBlocks((prev) => (typeof next === 'function' ? next(prev) : next));
+      setDraftDirty(true);
     },
     []
   );
+
+  const displayBlocks = editing ? draftBlocks : blocks;
 
   const loadBlocks = React.useCallback(async () => {
     try {
@@ -99,6 +115,10 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
       setError('');
       const data = await listContentBlocks(contentSectionId);
       setBlocks(data);
+      if (!editing) {
+        setDraftBlocks(data);
+        setDraftDirty(false);
+      }
     } catch (err) {
       setError('Fehler beim Laden der Inhalte.');
     } finally {
@@ -111,12 +131,19 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
   }, [loadBlocks]);
 
   React.useEffect(() => {
-    onHasBlocksChange?.(blocks.length > 0);
-  }, [blocks.length, onHasBlocksChange]);
+    if (editing) {
+      setDraftBlocks(blocks);
+      setDraftDirty(false);
+    }
+  }, [editing, blocks]);
 
   React.useEffect(() => {
-    blocksRef.current = blocks;
-  }, [blocks]);
+    onHasBlocksChange?.(displayBlocks.length > 0);
+  }, [displayBlocks.length, onHasBlocksChange]);
+
+  React.useEffect(() => {
+    blocksRef.current = displayBlocks;
+  }, [displayBlocks]);
 
   const recordHistory = (beforeBlocks: ContentBlock[], afterBlocks: ContentBlock[]) => {
     if (!buildSnapshot || !onHistory) {
@@ -134,6 +161,11 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
     if (block.type === 'image') {
       return !block.imageUrl;
     }
+    if (block.type === 'link' || block.type === 'file') {
+      const label = (block.content ?? '').trim();
+      const url = (block.imageUrl ?? '').trim();
+      return !label && !url;
+    }
     const content = (block.content ?? '')
       .replace(/<[^>]*>/g, '')
       .replace(/&nbsp;/g, ' ')
@@ -141,34 +173,6 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
     return content.length === 0;
   };
 
-  const cleanupEmptyBlocks = async () => {
-    const emptyBlocks = blocks.filter(isBlockEmpty);
-    if (emptyBlocks.length === 0) {
-      return;
-    }
-    try {
-      await Promise.all(
-        emptyBlocks.map(async (block) => {
-          await deleteContentBlock(block.id);
-          if (block.imageUrl) {
-            await deleteContentImage(block.imageUrl);
-          }
-        })
-      );
-      const remaining = blocks.filter((block) => !emptyBlocks.some((empty) => empty.id === block.id));
-      setBlocks(remaining);
-      onHasBlocksChange?.(remaining.length > 0);
-    } catch {
-      setError('Leere Bloecke konnten nicht entfernt werden.');
-    }
-  };
-
-  React.useEffect(() => {
-    if (wasEditing.current && !editing) {
-      cleanupEmptyBlocks();
-    }
-    wasEditing.current = editing;
-  }, [editing, blocks]);
 
   const openMenu = (
     event: React.MouseEvent<HTMLElement>,
@@ -176,11 +180,21 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
     preferredWidth?: number,
     allowedTypes?: BlockType[]
   ) => {
-    setMenuContext({ anchorEl: event.currentTarget, insertIndex, preferredWidth, allowedTypes });
+    setMenuContext({
+      anchorEl: event.currentTarget,
+      insertIndex,
+      preferredWidth,
+      allowedTypes: allowedTypes ?? baseAllowedTypes
+    });
   };
 
   const closeMenu = () => {
-    setMenuContext({ anchorEl: null, insertIndex: blocks.length, preferredWidth: undefined, allowedTypes: undefined });
+    setMenuContext({
+      anchorEl: null,
+      insertIndex: displayBlocks.length,
+      preferredWidth: undefined,
+      allowedTypes: undefined
+    });
   };
 
   const persistOrder = async (nextBlocks: ContentBlock[], originalMap: Map<string, number>) => {
@@ -207,6 +221,24 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
     imageUrl?: string,
     preferredWidth?: number
   ) => {
+    if (editing) {
+      const width = clampWidth(preferredWidth ?? (type === 'image' ? 6 : 12));
+      const newBlock: ContentBlock = {
+        id: `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        sectionId: contentSectionId,
+        type,
+        content: type === 'image' ? null : '',
+        imageUrl: type === 'image' ? imageUrl ?? null : null,
+        width,
+        orderIndex: insertIndex + 1
+      };
+      updateDraftBlocks((prev) => {
+        const nextBlocks = [...prev];
+        nextBlocks.splice(insertIndex, 0, newBlock);
+        return nextBlocks.map((block, index) => ({ ...block, orderIndex: index + 1 }));
+      });
+      return;
+    }
     try {
       const beforeBlocks = blocks;
       const width = clampWidth(preferredWidth ?? (type === 'image' ? 6 : 12));
@@ -247,14 +279,20 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
       setUploading(true);
       const imageUrl = await uploadContentImage(contentSectionId, file);
       if (replaceTargetId) {
-        const beforeBlocks = blocks;
-        const target = blocks.find((block) => block.id === replaceTargetId);
-        const updated = await updateContentBlock(replaceTargetId, { imageUrl });
-        const nextBlocks = blocks.map((block) => (block.id === updated.id ? updated : block));
-        setBlocks(nextBlocks);
-        recordHistory(beforeBlocks, nextBlocks);
-        if (target?.imageUrl) {
-          await deleteContentImage(target.imageUrl);
+        if (editing) {
+          updateDraftBlocks((prev) =>
+            prev.map((block) => (block.id === replaceTargetId ? { ...block, imageUrl } : block))
+          );
+        } else {
+          const beforeBlocks = blocks;
+          const target = blocks.find((block) => block.id === replaceTargetId);
+          const updated = await updateContentBlock(replaceTargetId, { imageUrl });
+          const nextBlocks = blocks.map((block) => (block.id === updated.id ? updated : block));
+          setBlocks(nextBlocks);
+          recordHistory(beforeBlocks, nextBlocks);
+          if (target?.imageUrl) {
+            await deleteContentImage(target.imageUrl);
+          }
         }
       } else if (pendingInsertIndex !== null) {
         await insertBlockAt('image', pendingInsertIndex, imageUrl, pendingInsertWidth ?? undefined);
@@ -271,10 +309,19 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
   };
 
   const handleContentChange = (id: string, value: string) => {
+    if (editing) {
+      updateDraftBlocks((prev) =>
+        prev.map((block) => (block.id === id ? { ...block, content: value } : block))
+      );
+      return;
+    }
     setBlocks((prev) => prev.map((block) => (block.id === id ? { ...block, content: value } : block)));
   };
 
   const handleContentSave = async (id: string) => {
+    if (editing) {
+      return;
+    }
     const block = blocks.find((item) => item.id === id);
     if (!block) {
       return;
@@ -291,24 +338,80 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
   };
 
   const scheduleContentSave = (id: string, value: string) => {
-    if (saveTimers.current[id]) {
-      window.clearTimeout(saveTimers.current[id]);
-    }
-    latestContent.current[id] = value;
     handleContentChange(id, value);
-    saveTimers.current[id] = window.setTimeout(async () => {
-      const payload = latestContent.current[id] ?? '';
-      try {
-        const updated = await updateContentBlock(id, { content: payload });
-        setBlocks((prev) => {
-          const nextBlocks = prev.map((item) => (item.id === updated.id ? updated : item));
-          recordHistory(prev, nextBlocks);
-          return nextBlocks;
-        });
-      } catch {
-        setError('Aenderung konnte nicht gespeichert werden.');
+  };
+
+  const handleLinkFieldChange = (id: string, field: 'content' | 'imageUrl', value: string) => {
+    if (editing) {
+      updateDraftBlocks((prev) =>
+        prev.map((block) => (block.id === id ? { ...block, [field]: value } : block))
+      );
+      return;
+    }
+    setBlocks((prev) =>
+      prev.map((block) => (block.id === id ? { ...block, [field]: value } : block))
+    );
+  };
+
+  const handleLinkSave = async (id: string) => {
+    if (editing) {
+      return;
+    }
+    const block = blocks.find((item) => item.id === id);
+    if (!block) {
+      return;
+    }
+    try {
+      const beforeBlocks = blocks;
+      const updated = await updateContentBlock(id, {
+        content: block.content ?? '',
+        imageUrl: block.imageUrl ?? ''
+      });
+      const nextBlocks = blocks.map((item) => (item.id === updated.id ? updated : item));
+      setBlocks(nextBlocks);
+      recordHistory(beforeBlocks, nextBlocks);
+    } catch {
+      setError('Link konnte nicht gespeichert werden.');
+    }
+  };
+
+  const handleFileUpload = async (id: string, file: File) => {
+    try {
+      setUploading(true);
+      const fileUrl = await uploadContentFile(contentSectionId, file);
+      if (editing) {
+        updateDraftBlocks((prev) =>
+          prev.map((block) => (block.id === id ? { ...block, imageUrl: fileUrl } : block))
+        );
+      } else {
+        const beforeBlocks = blocks;
+        const target = blocks.find((block) => block.id === id);
+        const updated = await updateContentBlock(id, { imageUrl: fileUrl });
+        const nextBlocks = blocks.map((block) => (block.id === updated.id ? updated : block));
+        setBlocks(nextBlocks);
+        recordHistory(beforeBlocks, nextBlocks);
+        if (target?.imageUrl) {
+          await deleteContentImage(target.imageUrl);
+        }
       }
-    }, 600);
+    } catch {
+      setError('Datei konnte nicht hochgeladen werden.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleFilePick = (id: string) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.zip,application/zip';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (file) {
+        handleFileUpload(id, file);
+      }
+    };
+    input.click();
   };
 
   const isHtmlContent = (value?: string | null) => {
@@ -316,6 +419,15 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
       return false;
     }
     return /<\/?[a-z][\s\S]*>/i.test(value);
+  };
+
+  const getFileNameFromUrl = (url?: string | null) => {
+    if (!url) {
+      return '';
+    }
+    const clean = url.split('?')[0];
+    const parts = clean.split('/');
+    return decodeURIComponent(parts[parts.length - 1] ?? '');
   };
 
   const formatPlainText = (value?: string | null) => {
@@ -346,6 +458,16 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
   );
 
   const handleDelete = async (id: string) => {
+    if (editing) {
+      updateDraftBlocks((prev) => {
+        const next = prev
+          .filter((block) => block.id !== id)
+          .map((block, index) => ({ ...block, orderIndex: index + 1 }));
+        onHasBlocksChange?.(next.length > 0);
+        return next;
+      });
+      return;
+    }
     try {
       const beforeBlocks = blocks;
       const target = blocks.find((block) => block.id === id);
@@ -380,14 +502,23 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
       const columnWidth = gridWidth / 12;
       const delta = event.clientX - resizeState.startX;
       const nextWidth = clampWidth(Math.round(resizeState.startWidth + delta / columnWidth));
-      setBlocks((prev) =>
-        prev.map((block) => (block.id === resizeState.id ? { ...block, width: nextWidth } : block))
-      );
+      if (editing) {
+        updateDraftBlocks((prev) =>
+          prev.map((block) => (block.id === resizeState.id ? { ...block, width: nextWidth } : block))
+        );
+      } else {
+        setBlocks((prev) =>
+          prev.map((block) => (block.id === resizeState.id ? { ...block, width: nextWidth } : block))
+        );
+      }
     };
 
     const handleUp = async () => {
-      const target = blocks.find((block) => block.id === resizeState.id);
       setResizeState(null);
+      if (editing) {
+        return;
+      }
+      const target = blocks.find((block) => block.id === resizeState.id);
       if (!target) {
         return;
       }
@@ -410,7 +541,7 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
       window.removeEventListener('pointermove', handleMove);
       window.removeEventListener('pointerup', handleUp);
     };
-  }, [blocks, resizeState]);
+  }, [blocks, draftBlocks, editing, resizeState, updateDraftBlocks]);
 
   const handleDragStart = (event: React.DragEvent, id: string) => {
     event.dataTransfer.effectAllowed = 'move';
@@ -440,23 +571,150 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
     if (!id) {
       return;
     }
-    const fromIndex = blocks.findIndex((block) => block.id === id);
+    const workingBlocks = editing ? draftBlocks : blocks;
+    const fromIndex = workingBlocks.findIndex((block) => block.id === id);
     if (fromIndex === -1) {
       return;
     }
     if (fromIndex === index || fromIndex + 1 === index) {
       return;
     }
-    const nextBlocks = blocks.filter((block) => block.id !== id);
+    const nextBlocks = workingBlocks.filter((block) => block.id !== id);
     const insertIndex = index > fromIndex ? index - 1 : index;
-    nextBlocks.splice(insertIndex, 0, blocks[fromIndex]);
+    nextBlocks.splice(insertIndex, 0, workingBlocks[fromIndex]);
+    if (editing) {
+      updateDraftBlocks(
+        nextBlocks.map((block, orderIndex) => ({ ...block, orderIndex: orderIndex + 1 }))
+      );
+      return;
+    }
     const originalMap = new Map(blocks.map((block) => [block.id, block.orderIndex]));
     const ordered = await persistOrder(nextBlocks, originalMap);
     setBlocks(ordered);
     recordHistory(blocks, ordered);
   };
 
-  if (loading && blocks.length === 0) {
+  const commitChanges = React.useCallback(async (): Promise<boolean> => {
+    if (commitInFlight) {
+      return false;
+    }
+    const draftClean = draftBlocks.filter((block) => !isBlockEmpty(block));
+    const normalizedDraft = draftClean.map((block, index) => ({
+      ...block,
+      orderIndex: index + 1
+    }));
+    if (!draftDirty) {
+      setDraftBlocks(normalizedDraft);
+      return true;
+    }
+
+    setCommitInFlight(true);
+    setError('');
+    try {
+      const beforeBlocks = blocks;
+      const persistedMap = new Map(beforeBlocks.map((block) => [block.id, block]));
+      const draftIds = new Set(normalizedDraft.map((block) => block.id));
+      const removedBlocks = beforeBlocks.filter((block) => !draftIds.has(block.id));
+      const removeUrls = new Set<string>();
+
+      removedBlocks.forEach((block) => {
+        if (block.imageUrl) {
+          removeUrls.add(block.imageUrl);
+        }
+      });
+
+      for (const block of normalizedDraft) {
+        if (block.id.startsWith('draft-')) {
+          await createContentBlock({
+            sectionId: contentSectionId,
+            type: block.type,
+            content: block.content ?? null,
+            imageUrl: block.imageUrl ?? null,
+            width: block.width,
+            orderIndex: block.orderIndex
+          });
+          continue;
+        }
+
+        const original = persistedMap.get(block.id);
+        if (!original) {
+          continue;
+        }
+        const updates: Partial<{
+          content: string | null;
+          imageUrl: string | null;
+          width: number;
+          orderIndex: number;
+        }> = {};
+        if ((original.content ?? '') !== (block.content ?? '')) {
+          updates.content = block.content ?? null;
+        }
+        if ((original.imageUrl ?? '') !== (block.imageUrl ?? '')) {
+          updates.imageUrl = block.imageUrl ?? null;
+          if (original.imageUrl) {
+            removeUrls.add(original.imageUrl);
+          }
+        }
+        if (original.width !== block.width) {
+          updates.width = block.width;
+        }
+        if (original.orderIndex !== block.orderIndex) {
+          updates.orderIndex = block.orderIndex;
+        }
+        if (Object.keys(updates).length > 0) {
+          await updateContentBlock(block.id, updates);
+        }
+      }
+
+      for (const block of removedBlocks) {
+        await deleteContentBlock(block.id);
+      }
+
+      if (removeUrls.size > 0) {
+        await Promise.all(Array.from(removeUrls).map((url) => deleteContentImage(url)));
+      }
+
+      const refreshed = await listContentBlocks(contentSectionId);
+      setBlocks(refreshed);
+      setDraftBlocks(refreshed);
+      setDraftDirty(false);
+      onHasBlocksChange?.(refreshed.length > 0);
+      recordHistory(beforeBlocks, refreshed);
+      return true;
+    } catch {
+      setError('Speichern fehlgeschlagen.');
+      return false;
+    } finally {
+      setCommitInFlight(false);
+    }
+  }, [
+    blocks,
+    commitInFlight,
+    contentSectionId,
+    draftBlocks,
+    draftDirty,
+    onHasBlocksChange,
+    recordHistory
+  ]);
+
+  React.useEffect(() => {
+    if (commitSignal === undefined) {
+      return;
+    }
+    if (commitSignal === lastCommitSignal.current) {
+      return;
+    }
+    lastCommitSignal.current = commitSignal;
+    if (!editing) {
+      onCommitComplete?.(true);
+      return;
+    }
+    commitChanges().then((success) => {
+      onCommitComplete?.(success);
+    });
+  }, [commitChanges, commitSignal, editing, onCommitComplete]);
+
+  if (loading && displayBlocks.length === 0) {
     return null;
   }
 
@@ -468,7 +726,7 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
         </Typography>
       ) : null}
 
-      {canEdit && editing && blocks.length > 0 ? (
+      {canEdit && editing && displayBlocks.length > 0 ? (
         <Box
           sx={{ mb: 2 }}
           onDragOver={(event) => handleDragOver(event, 0)}
@@ -496,11 +754,11 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
           alignItems: 'stretch'
         }}
       >
-        {blocks.map((block, index) => {
+        {displayBlocks.map((block, index) => {
           let rowWidth = 0;
           let rowHasImage = false;
           for (let i = 0; i <= index; i += 1) {
-            const current = blocks[i];
+            const current = displayBlocks[i];
             if (rowWidth + current.width > 12) {
               rowWidth = 0;
               rowHasImage = false;
@@ -508,11 +766,14 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
             rowWidth += current.width;
             rowHasImage = rowHasImage || current.type === 'image';
           }
-          const nextBlock = blocks[index + 1];
+          const nextBlock = displayBlocks[index + 1];
           const isRowEnd = !nextBlock || rowWidth + nextBlock.width > 12;
           const remainingWidth = 12 - rowWidth;
-          const showInlineAdd = !isMobile && editing && isRowEnd && remainingWidth >= 3;
-          const allowedInlineTypes = rowHasImage ? (['heading', 'text'] as BlockType[]) : undefined;
+          const allowedInlineTypes = rowHasImage
+            ? baseAllowedTypes.filter((type) => type === 'heading' || type === 'text')
+            : baseAllowedTypes;
+          const showInlineAdd =
+            !isMobile && editing && isRowEnd && remainingWidth >= 3 && allowedInlineTypes.length > 0;
           return (
             <React.Fragment key={block.id}>
               <Box
@@ -607,6 +868,125 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
                     __html: isHtmlContent(block.content) ? (block.content ?? '') : formatPlainText(block.content)
                   }}
                 />
+              )
+            ) : null}
+
+            {block.type === 'link' ? (
+              editing ? (
+                <Box sx={{ display: 'grid', gap: 1 }}>
+                  <TextField
+                    label="Beschreibung"
+                    value={block.content ?? ''}
+                    onChange={(event) => handleLinkFieldChange(block.id, 'content', event.target.value)}
+                    onBlur={() => handleLinkSave(block.id)}
+                    fullWidth
+                    size="small"
+                  />
+                  <TextField
+                    label="Link"
+                    value={block.imageUrl ?? ''}
+                    onChange={(event) => handleLinkFieldChange(block.id, 'imageUrl', event.target.value)}
+                    onBlur={() => handleLinkSave(block.id)}
+                    fullWidth
+                    size="small"
+                  />
+                </Box>
+              ) : (
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 2,
+                    flexWrap: 'wrap',
+                    borderRadius: 2,
+                    border: '1px solid rgba(0,0,0,0.08)',
+                    p: 2
+                  }}
+                >
+                  <Box sx={{ flex: 1, minWidth: 200 }}>
+                    <Typography sx={{ fontWeight: 600 }}>{block.content || 'Link'}</Typography>
+                    {block.imageUrl ? (
+                      <Typography variant="body2" color="text.secondary">
+                        {block.imageUrl}
+                      </Typography>
+                    ) : null}
+                  </Box>
+                  {block.imageUrl ? (
+                    <Button
+                      variant="contained"
+                      size="small"
+                      href={block.imageUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Oeffnen
+                    </Button>
+                  ) : null}
+                </Box>
+              )
+            ) : null}
+
+            {block.type === 'file' ? (
+              editing ? (
+                <Box sx={{ display: 'grid', gap: 1 }}>
+                  <TextField
+                    label="Beschreibung"
+                    value={block.content ?? ''}
+                    onChange={(event) => handleLinkFieldChange(block.id, 'content', event.target.value)}
+                    onBlur={() => handleLinkSave(block.id)}
+                    fullWidth
+                    size="small"
+                  />
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                    <Button
+                      size="small"
+                      startIcon={<AttachFileIcon />}
+                      onClick={() => handleFilePick(block.id)}
+                      disabled={uploading}
+                    >
+                      ZIP hochladen
+                    </Button>
+                    {block.imageUrl ? (
+                      <Typography variant="body2" color="text.secondary">
+                        {getFileNameFromUrl(block.imageUrl)}
+                      </Typography>
+                    ) : null}
+                  </Box>
+                </Box>
+              ) : (
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 2,
+                    flexWrap: 'wrap',
+                    borderRadius: 2,
+                    border: '1px solid rgba(0,0,0,0.08)',
+                    p: 2
+                  }}
+                >
+                  <Box sx={{ flex: 1, minWidth: 200 }}>
+                    <Typography sx={{ fontWeight: 600 }}>{block.content || 'Download'}</Typography>
+                    {block.imageUrl ? (
+                      <Typography variant="body2" color="text.secondary">
+                        {getFileNameFromUrl(block.imageUrl)}
+                      </Typography>
+                    ) : null}
+                  </Box>
+                  {block.imageUrl ? (
+                    <Button
+                      variant="contained"
+                      size="small"
+                      href={block.imageUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Download
+                    </Button>
+                  ) : null}
+                </Box>
               )
             ) : null}
 
@@ -716,19 +1096,20 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
             display: 'flex',
             alignItems: 'center',
             gap: 2,
-            border: dropIndex === blocks.length ? '1px dashed #0088ff' : '1px dashed rgba(0,0,0,0.3)',
+            border:
+              dropIndex === displayBlocks.length ? '1px dashed #0088ff' : '1px dashed rgba(0,0,0,0.3)',
             borderRadius: 2,
             p: 2,
             flexWrap: 'wrap'
           }}
-          onDragOver={(event) => handleDragOver(event, blocks.length)}
-          onDrop={(event) => handleDrop(event, blocks.length)}
+          onDragOver={(event) => handleDragOver(event, displayBlocks.length)}
+          onDrop={(event) => handleDrop(event, displayBlocks.length)}
           onDragLeave={handleDragLeave}
         >
           <Button
             variant="text"
             startIcon={<AddIcon />}
-            onClick={(event) => openMenu(event, blocks.length)}
+            onClick={(event) => openMenu(event, displayBlocks.length)}
             disabled={uploading}
             sx={{ width: { xs: '100%', sm: 'auto' } }}
           >
@@ -752,6 +1133,16 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
         {!menuContext.allowedTypes || menuContext.allowedTypes.includes('image') ? (
           <MenuItem onClick={() => handleCreateBlock('image')}>
             <ImageIcon sx={{ mr: 1 }} /> Bild hochladen
+          </MenuItem>
+        ) : null}
+        {!menuContext.allowedTypes || menuContext.allowedTypes.includes('link') ? (
+          <MenuItem onClick={() => handleCreateBlock('link')}>
+            <LinkIcon sx={{ mr: 1 }} /> Link mit Beschreibung
+          </MenuItem>
+        ) : null}
+        {!menuContext.allowedTypes || menuContext.allowedTypes.includes('file') ? (
+          <MenuItem onClick={() => handleCreateBlock('file')}>
+            <AttachFileIcon sx={{ mr: 1 }} /> ZIP hochladen
           </MenuItem>
         ) : null}
       </Menu>
