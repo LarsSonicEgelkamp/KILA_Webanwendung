@@ -25,6 +25,47 @@ import RoughNotation from '../components/RoughNotation';
 import { BlockType, createContentBlock, listContentBlocks, updateContentBlock } from '../lib/contentBlocks';
 import { createContentSection, listContentSections } from '../lib/contentSections';
 
+type WaveConfig = {
+  minY: number;
+  maxY: number;
+  segments?: number;
+  width?: number;
+  height?: number;
+  fromTop?: boolean;
+};
+
+const createWavePath = ({
+  minY,
+  maxY,
+  segments = 4,
+  width = 1200,
+  height = 160,
+  fromTop = true
+}: WaveConfig): string => {
+  const step = width / segments;
+  const points = Array.from({ length: segments + 1 }, (_, index) => ({
+    x: Math.round(index * step),
+    y: Math.round(minY + Math.random() * (maxY - minY))
+  }));
+
+  const startY = fromTop ? 0 : height;
+  let d = `M0 ${startY} V${points[0].y}`;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const current = points[i];
+    const next = points[i + 1];
+    const cpX = Math.round(current.x + (next.x - current.x) * 0.5);
+    d += ` C ${cpX} ${current.y} ${cpX} ${next.y} ${next.x} ${next.y}`;
+  }
+  d += ` V${startY} H0 Z`;
+  return d;
+};
+
+const createHeroWavePath = (): string =>
+  createWavePath({ minY: 80, maxY: 170, segments: 5, width: 1200, height: 200, fromTop: false });
+
+const createReleaseWavePath = (): string =>
+  createWavePath({ minY: 35, maxY: 120, segments: 4, width: 1200, height: 160, fromTop: true });
+
 const Home: React.FC = () => {
   const { t } = useTranslation();
   const location = useLocation();
@@ -42,6 +83,8 @@ const Home: React.FC = () => {
   const showRelease = activeSection === 'home';
   const canEditRelease = user?.role === 'admin';
   const sectionBg = theme.palette.mode === 'dark' ? 'dark' : 'light';
+  const [heroWavePath, setHeroWavePath] = React.useState(() => createHeroWavePath());
+  const [releaseWavePath, setReleaseWavePath] = React.useState(() => createReleaseWavePath());
 
   React.useEffect(() => {
     let active = true;
@@ -375,6 +418,26 @@ const Home: React.FC = () => {
         </Box>
       ) : null}
 
+      {showHero && showRelease ? (
+        <Box
+          aria-hidden
+          sx={{
+            bgcolor: '#0088ff',
+            height: { xs: 120, md: 170 },
+            lineHeight: 0
+          }}
+        >
+          <Box
+            component="svg"
+            viewBox="0 0 1200 200"
+            preserveAspectRatio="none"
+            sx={{ width: '100%', height: '100%', display: 'block' }}
+          >
+            <path d={heroWavePath} fill="#0f1017" />
+          </Box>
+        </Box>
+      ) : null}
+
       {showRelease ? (
         <Box
           sx={{
@@ -443,6 +506,27 @@ const Home: React.FC = () => {
                 </span>
               </RoughNotation>
             </Typography>
+          </Box>
+        </Box>
+      ) : null}
+
+      {showRelease ? (
+        <Box
+          aria-hidden
+          sx={{
+            bgcolor: theme.palette.background.default,
+            height: { xs: 120, md: 160 },
+            lineHeight: 0
+          }}
+          data-bg={sectionBg}
+        >
+          <Box
+            component="svg"
+            viewBox="0 0 1200 160"
+            preserveAspectRatio="none"
+            sx={{ width: '100%', height: '100%', display: 'block' }}
+          >
+            <path d={releaseWavePath} fill="#0f1017" />
           </Box>
         </Box>
       ) : null}

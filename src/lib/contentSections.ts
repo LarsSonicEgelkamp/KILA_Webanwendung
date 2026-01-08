@@ -6,6 +6,10 @@ export type ContentSection = {
   title: string;
   ownerId: string;
   ownerName: string;
+  showAuthor: boolean;
+  showPublishDate: boolean;
+  publishDate: string | null;
+  editorIds: string[];
   createdAt: string;
   updatedAt: string;
 };
@@ -26,8 +30,20 @@ type SectionRow = {
   title: string;
   owner_id: string;
   owner_name: string;
+  show_author: boolean | null;
+  show_publish_date: boolean | null;
+  publish_date: string | null;
+  editor_ids: string[] | null;
   created_at: string;
   updated_at: string;
+};
+
+type SectionUpdateRow = {
+  title?: string;
+  show_author?: boolean;
+  show_publish_date?: boolean;
+  publish_date?: string | null;
+  editor_ids?: string[];
 };
 
 type HistoryRow = {
@@ -46,6 +62,10 @@ const mapSection = (row: SectionRow): ContentSection => ({
   title: row.title,
   ownerId: row.owner_id,
   ownerName: row.owner_name,
+  showAuthor: row.show_author ?? false,
+  showPublishDate: row.show_publish_date ?? false,
+  publishDate: row.publish_date ?? null,
+  editorIds: row.editor_ids ?? [],
   createdAt: row.created_at,
   updatedAt: row.updated_at
 });
@@ -63,7 +83,9 @@ const mapHistory = (row: HistoryRow): SectionHistoryEntry => ({
 export const listContentSections = async (pageSectionId: string): Promise<ContentSection[]> => {
   const { data, error } = await supabase
     .from('content_sections')
-    .select('id, page_section_id, title, owner_id, owner_name, created_at, updated_at')
+    .select(
+      'id, page_section_id, title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
+    )
     .eq('page_section_id', pageSectionId)
     .order('created_at', { ascending: true });
   if (error) {
@@ -77,6 +99,10 @@ export const createContentSection = async (input: {
   title: string;
   ownerId: string;
   ownerName: string;
+  showAuthor?: boolean;
+  showPublishDate?: boolean;
+  publishDate?: string | null;
+  editorIds?: string[];
 }): Promise<ContentSection> => {
   const { data, error } = await supabase
     .from('content_sections')
@@ -84,9 +110,15 @@ export const createContentSection = async (input: {
       page_section_id: input.pageSectionId,
       title: input.title,
       owner_id: input.ownerId,
-      owner_name: input.ownerName
+      owner_name: input.ownerName,
+      show_author: input.showAuthor ?? false,
+      show_publish_date: input.showPublishDate ?? false,
+      publish_date: input.publishDate ?? null,
+      editor_ids: input.editorIds ?? []
     })
-    .select('id, page_section_id, title, owner_id, owner_name, created_at, updated_at')
+    .select(
+      'id, page_section_id, title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
+    )
     .single();
   if (error || !data) {
     throw error ?? new Error('Failed to create section.');
@@ -94,17 +126,60 @@ export const createContentSection = async (input: {
   return mapSection(data);
 };
 
-export const updateContentSectionTitle = async (id: string, title: string): Promise<ContentSection> => {
+export const updateContentSection = async (
+  id: string,
+  updates: {
+    title?: string;
+    showAuthor?: boolean;
+    showPublishDate?: boolean;
+    publishDate?: string | null;
+    editorIds?: string[];
+  }
+): Promise<ContentSection> => {
+  const updatePayload: SectionUpdateRow = {};
+  if (updates.title !== undefined) {
+    updatePayload.title = updates.title;
+  }
+  if (updates.showAuthor !== undefined) {
+    updatePayload.show_author = updates.showAuthor;
+  }
+  if (updates.showPublishDate !== undefined) {
+    updatePayload.show_publish_date = updates.showPublishDate;
+  }
+  if (updates.publishDate !== undefined) {
+    updatePayload.publish_date = updates.publishDate;
+  }
+  if (updates.editorIds !== undefined) {
+    updatePayload.editor_ids = updates.editorIds;
+  }
+
   const { data, error } = await supabase
     .from('content_sections')
-    .update({ title })
+    .update(updatePayload)
     .eq('id', id)
-    .select('id, page_section_id, title, owner_id, owner_name, created_at, updated_at')
+    .select(
+      'id, page_section_id, title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
+    )
     .single();
   if (error || !data) {
-    throw error ?? new Error('Failed to update section title.');
+    throw error ?? new Error('Failed to update section.');
   }
   return mapSection(data);
+};
+
+export const updateContentSectionTitle = async (id: string, title: string): Promise<ContentSection> => {
+  return updateContentSection(id, { title });
+};
+
+export const updateContentSectionEditors = async (id: string, editorIds: string[]): Promise<ContentSection> => {
+  return updateContentSection(id, { editorIds });
+};
+
+export const updateContentSectionMeta = async (
+  id: string,
+  meta: { showAuthor?: boolean; showPublishDate?: boolean; publishDate?: string | null }
+): Promise<ContentSection> => {
+  return updateContentSection(id, meta);
 };
 
 export const deleteContentSection = async (id: string): Promise<void> => {
