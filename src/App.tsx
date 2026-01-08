@@ -5,6 +5,7 @@ import {
   Avatar,
   Box,
   Button,
+  CircularProgress,
   Divider,
   IconButton,
   ListItemIcon,
@@ -29,7 +30,6 @@ import { useAuth } from './auth/AuthContext';
 import { useSection } from './state/SectionContext';
 import { useThemeMode } from './state/ThemeContext';
 import Home from './pages/Home';
-import ContentPage from './pages/ContentPage';
 import AccountPage from './pages/AccountPage';
 import Inbox from './pages/Inbox';
 import { getLatestInboxMessageTimestamp } from './lib/messages';
@@ -56,6 +56,8 @@ const App: React.FC = () => {
   const [showTopHint, setShowTopHint] = React.useState(true);
   const [accountAnchorEl, setAccountAnchorEl] = React.useState<null | HTMLElement>(null);
   const [hasUnread, setHasUnread] = React.useState(false);
+  const [pullDistance, setPullDistance] = React.useState(0);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
   const mainRef = React.useRef<HTMLDivElement | null>(null);
   const lastTrackedRef = React.useRef<{ section?: string; path?: string; role?: string }>({});
   const pullStartYRef = React.useRef<number | null>(null);
@@ -117,12 +119,16 @@ const App: React.FC = () => {
       return;
     }
 
+    const maxPull = 120;
+    const refreshThreshold = 80;
+
     const handleTouchStart = (event: TouchEvent) => {
       if (container.scrollTop > 0 || refreshingRef.current) {
         return;
       }
       pullStartYRef.current = event.touches[0]?.clientY ?? null;
       pullingRef.current = true;
+      setPullDistance(0);
     };
 
     const handleTouchMove = (event: TouchEvent) => {
@@ -133,12 +139,15 @@ const App: React.FC = () => {
       if (pullStartYRef.current === null || currentY === null) {
         return;
       }
+      const delta = Math.max(0, currentY - pullStartYRef.current);
+      setPullDistance(Math.min(maxPull, delta));
     };
 
     const handleTouchEnd = (event: TouchEvent) => {
       if (!pullingRef.current || refreshingRef.current) {
         pullStartYRef.current = null;
         pullingRef.current = false;
+        setPullDistance(0);
         return;
       }
       const endY = event.changedTouches[0]?.clientY ?? null;
@@ -146,12 +155,19 @@ const App: React.FC = () => {
       pullStartYRef.current = null;
       pullingRef.current = false;
       if (startY === null || endY === null) {
+        setPullDistance(0);
         return;
       }
       const delta = endY - startY;
-      if (delta > 80) {
+      if (delta > refreshThreshold) {
         refreshingRef.current = true;
-        window.location.reload();
+        setIsRefreshing(true);
+        setPullDistance(maxPull);
+        window.setTimeout(() => {
+          window.location.reload();
+        }, 300);
+      } else {
+        setPullDistance(0);
       }
     };
 
@@ -271,6 +287,30 @@ const App: React.FC = () => {
 
   return (
     <Box sx={{ height: '100dvh', overflow: 'hidden', bgcolor: theme.palette.background.default }}>
+      <Box
+        sx={{
+          position: 'fixed',
+          top: 8,
+          left: '50%',
+          transform: `translate(-50%, ${pullDistance > 0 ? pullDistance * 0.2 : -40}px)`,
+          zIndex: theme.zIndex.appBar + 3,
+          display: pullDistance > 0 || isRefreshing ? 'flex' : 'none',
+          alignItems: 'center',
+          gap: 1,
+          px: 2,
+          py: 0.8,
+          borderRadius: 999,
+          bgcolor: theme.palette.mode === 'dark' ? 'rgba(20, 23, 32, 0.9)' : 'rgba(255,255,255,0.95)',
+          boxShadow: '0 6px 18px rgba(0,0,0,0.18)',
+          color: theme.palette.text.primary,
+          transition: isRefreshing ? 'none' : 'transform 120ms ease'
+        }}
+      >
+        <CircularProgress size={16} sx={{ color: '#0088ff' }} />
+        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+          {isRefreshing ? 'Aktualisiere...' : 'Zum Aktualisieren ziehen'}
+        </Typography>
+      </Box>
       <AppBar
         position="fixed"
         sx={(theme) => ({
@@ -628,7 +668,6 @@ const App: React.FC = () => {
           <Route path="/anmeldung/user-management" element={<UserManagement />} />
           <Route path="/konto" element={<AccountPage />} />
           <Route path="/postfach" element={<Inbox />} />
-          <Route path="/einstellungen" element={<ContentPage titleKey="menu.account.settings" />} />
           <Route path="/aenderungshistorie" element={<HistoryPage />} />
           <Route path="/team/leitung" element={<Home />} />
           <Route path="/team/betreuer" element={<Home />} />
