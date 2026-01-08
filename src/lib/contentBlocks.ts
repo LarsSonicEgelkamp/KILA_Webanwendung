@@ -111,3 +111,20 @@ export const uploadContentImage = async (sectionId: string, file: File): Promise
   const { data } = supabase.storage.from('content').getPublicUrl(path);
   return data.publicUrl;
 };
+
+export const deleteContentImage = async (imageUrl: string): Promise<void> => {
+  const marker = '/storage/v1/object/public/content/';
+  const start = imageUrl.indexOf(marker);
+  if (start === -1) {
+    return;
+  }
+  const pathWithQuery = imageUrl.slice(start + marker.length);
+  const path = pathWithQuery.split('?')[0];
+  if (!path) {
+    return;
+  }
+  const { error } = await supabase.storage.from('content').remove([path]);
+  if (error) {
+    throw error;
+  }
+};

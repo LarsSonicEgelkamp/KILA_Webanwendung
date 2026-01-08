@@ -40,6 +40,11 @@ const resources = {
           camp: 'Unser Lager',
           dates: 'Termine'
         },
+        campYear: {
+          label: 'Lager {{year}}',
+          reports: 'Aktuelle Berichte',
+          photos: 'Bilder'
+        },
         team: {
           label: 'Das Team',
           leadership: 'Die Leitung',
@@ -67,7 +72,7 @@ const resources = {
           location: 'Unterkunft & Umgebung'
         },
         registration: {
-          label: 'Anmeldung',
+          label: 'Login',
           login: 'Login',
           signup: 'Sign Up',
           userManagement: 'Benutzerverwaltung'
@@ -75,6 +80,9 @@ const resources = {
         account: {
           manage: 'Konto verwalten',
           settings: 'Einstellungen',
+          inbox: 'Postfach',
+          darkMode: 'Dark Mode',
+          lightMode: 'Light Mode',
           history: 'Aenderungshistorie',
           userManagement: 'Benutzerverwaltung',
           logout: 'Abmelden'
@@ -153,6 +161,11 @@ const resources = {
           camp: 'Our Camp',
           dates: 'Dates'
         },
+        campYear: {
+          label: 'Camp {{year}}',
+          reports: 'Current Reports',
+          photos: 'Photos'
+        },
         team: {
           label: 'The Team',
           leadership: 'Leadership',
@@ -180,7 +193,7 @@ const resources = {
           location: 'Venue & Surroundings'
         },
         registration: {
-          label: 'Registration',
+          label: 'Login',
           login: 'Login',
           signup: 'Sign Up',
           userManagement: 'User Management'
@@ -188,6 +201,9 @@ const resources = {
         account: {
           manage: 'Manage account',
           settings: 'Settings',
+          inbox: 'Inbox',
+          darkMode: 'Dark mode',
+          lightMode: 'Light mode',
           history: 'Change history',
           userManagement: 'User management',
           logout: 'Sign out'

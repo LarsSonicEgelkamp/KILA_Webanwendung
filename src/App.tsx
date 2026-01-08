@@ -11,21 +11,30 @@ import {
   Menu,
   MenuItem,
   Toolbar,
-  Typography
+  Typography,
+  useTheme
 } from '@mui/material';
 import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
 import SettingsIcon from '@mui/icons-material/Settings';
 import HistoryIcon from '@mui/icons-material/History';
 import GroupIcon from '@mui/icons-material/Group';
 import LogoutIcon from '@mui/icons-material/Logout';
+import MailOutlineIcon from '@mui/icons-material/MailOutline';
+import DarkModeIcon from '@mui/icons-material/DarkMode';
+import LightModeIcon from '@mui/icons-material/LightMode';
 import { track } from '@vercel/analytics';
 import { useTranslation } from 'react-i18next';
 import NavBar from './components/NavBar';
 import RoughNotation from './components/RoughNotation';
 import { useAuth } from './auth/AuthContext';
 import { useSection } from './state/SectionContext';
+import { useThemeMode } from './state/ThemeContext';
 import Home from './pages/Home';
 import ContentPage from './pages/ContentPage';
+import AccountPage from './pages/AccountPage';
+import Inbox from './pages/Inbox';
+import { getLatestInboxMessageTimestamp } from './lib/messages';
+import HistoryPage from './pages/HistoryPage';
 import Login from './pages/Login';
 import SignUp from './pages/SignUp';
 import UserManagement from './pages/UserManagement';
@@ -41,17 +50,20 @@ const App: React.FC = () => {
   const { t } = useTranslation();
   const { user, loading, logout } = useAuth();
   const { activeSection } = useSection();
+  const theme = useTheme();
+  const { mode, toggleMode } = useThemeMode();
   const isHome = location.pathname === '/';
   const [menuColor, setMenuColor] = React.useState('#ffffff');
   const [showTopHint, setShowTopHint] = React.useState(true);
   const [accountAnchorEl, setAccountAnchorEl] = React.useState<null | HTMLElement>(null);
+  const [hasUnread, setHasUnread] = React.useState(false);
   const mainRef = React.useRef<HTMLDivElement | null>(null);
   const lastTrackedRef = React.useRef<{ section?: string; path?: string; role?: string }>({});
 
   const updateMenuColor = React.useCallback(() => {
     const container = mainRef.current;
     if (!isHome || !container) {
-      setMenuColor('#0088ff');
+      setMenuColor(theme.palette.mode === 'dark' ? '#ffffff' : '#0088ff');
       setShowTopHint(false);
       return;
     }
@@ -71,9 +83,9 @@ const App: React.FC = () => {
       }
     }
     const resolvedBg = bg ?? 'light';
-    setMenuColor(resolvedBg === 'blue' ? '#ffffff' : '#0088ff');
+    setMenuColor(resolvedBg === 'blue' || resolvedBg === 'dark' ? '#ffffff' : '#0088ff');
     setShowTopHint(activeSection === 'home' && container.scrollTop < 40);
-  }, [activeSection, isHome]);
+  }, [activeSection, isHome, theme.palette.mode]);
 
   React.useEffect(() => {
     const container = mainRef.current;
@@ -100,6 +112,43 @@ const App: React.FC = () => {
     }
   }, [navOpen, updateMenuColor]);
 
+  const checkUnread = React.useCallback(async () => {
+    if (!user) {
+      setHasUnread(false);
+      return;
+    }
+    try {
+      const latest = await getLatestInboxMessageTimestamp(user.id);
+      if (!latest) {
+        setHasUnread(false);
+        return;
+      }
+      const seenKey = `kila_inbox_seen_at_${user.id}`;
+      const seen = window.localStorage.getItem(seenKey);
+      if (!seen) {
+        setHasUnread(true);
+        return;
+      }
+      setHasUnread(new Date(latest).getTime() > new Date(seen).getTime());
+    } catch {
+      setHasUnread(false);
+    }
+  }, [user]);
+
+  React.useEffect(() => {
+    checkUnread();
+    if (!user) {
+      return;
+    }
+    const interval = window.setInterval(checkUnread, 30000);
+    const handleSeen = () => checkUnread();
+    window.addEventListener('kila_inbox_seen', handleSeen);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('kila_inbox_seen', handleSeen);
+    };
+  }, [checkUnread, user]);
+
   React.useEffect(() => {
     if (loading) {
       return;
@@ -124,7 +173,11 @@ const App: React.FC = () => {
   };
 
   const iconColor = navOpen ? '#0088ff' : menuColor;
-  const statusColor = iconColor;
+  const statusColor = menuColor;
+  const accountBg =
+    statusColor === '#ffffff' ? 'rgba(255,255,255,0.22)' : 'rgba(0,136,255,0.12)';
+  const accountBgHover =
+    statusColor === '#ffffff' ? 'rgba(255,255,255,0.32)' : 'rgba(0,136,255,0.2)';
   const roleLabel = user?.role ? t(`auth.roles.${user.role}`) : '';
   const displayName = user?.name || user?.email || 'User';
   const isAdmin = user?.role === 'admin';
@@ -158,7 +211,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <Box sx={{ height: '100vh', overflow: 'hidden', bgcolor: '#ffffff' }}>
+    <Box sx={{ height: '100dvh', overflow: 'hidden', bgcolor: theme.palette.background.default }}>
       <AppBar
         position="fixed"
         sx={(theme) => ({
@@ -183,7 +236,7 @@ const App: React.FC = () => {
                 sx={{ color: statusColor, textTransform: 'none' }}
                 variant="text"
               >
-                Anmelden
+                {t('menu.registration.login')}
               </Button>
             ) : null}
             {!loading && user ? (
@@ -196,21 +249,43 @@ const App: React.FC = () => {
                   alignItems: 'center',
                   gap: 1,
                   px: 1,
-                  py: 0.4
+                  py: 0.4,
+                  bgcolor: accountBg,
+                  borderRadius: 999,
+                  position: 'relative',
+                  '&:hover': { bgcolor: accountBgHover }
                 }}
                 variant="text"
               >
-                <Avatar
-                  sx={{
-                    width: 28,
-                    height: 28,
-                    bgcolor: statusColor === '#ffffff' ? 'rgba(255,255,255,0.2)' : 'rgba(0,136,255,0.15)',
-                    color: statusColor,
-                    fontSize: '0.8rem'
-                  }}
-                >
-                  {getInitials(displayName)}
-                </Avatar>
+                <Box sx={{ position: 'relative', display: 'inline-flex' }}>
+                  <Avatar
+                    src={user?.avatarUrl ?? undefined}
+                    sx={{
+                      width: 28,
+                      height: 28,
+                      bgcolor: statusColor === '#ffffff' ? 'rgba(255,255,255,0.2)' : 'rgba(0,136,255,0.15)',
+                      color: statusColor,
+                      fontSize: '0.8rem'
+                    }}
+                  >
+                    {getInitials(displayName)}
+                  </Avatar>
+                  {hasUnread ? (
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        right: -2,
+                        top: -2,
+                        width: 10,
+                        height: 10,
+                        borderRadius: '50%',
+                        bgcolor: '#ff2d55',
+                        border: `2px solid ${accountBg}`,
+                        boxSizing: 'content-box'
+                      }}
+                    />
+                  ) : null}
+                </Box>
                 <Box sx={{ textAlign: 'left' }}>
                   <Typography sx={{ fontWeight: 600, fontSize: { xs: '0.9rem', md: '1rem' } }}>
                     {displayName}
@@ -276,7 +351,7 @@ const App: React.FC = () => {
         PaperProps={{
           sx: {
             mt: 1,
-            width: 320,
+            width: { xs: '92vw', sm: 320 },
             bgcolor: '#1f2127',
             color: '#ffffff',
             borderRadius: 3,
@@ -291,6 +366,7 @@ const App: React.FC = () => {
             </Typography>
           ) : null}
           <Avatar
+            src={user?.avatarUrl ?? undefined}
             sx={{
               width: 72,
               height: 72,
@@ -328,6 +404,42 @@ const App: React.FC = () => {
             <SettingsIcon fontSize="small" />
           </ListItemIcon>
           {t('menu.account.settings')}
+        </MenuItem>
+        <MenuItem
+          onClick={() => handleAccountNavigate('/postfach')}
+          sx={{ color: 'inherit' }}
+        >
+          <ListItemIcon sx={{ color: 'inherit', minWidth: 32 }}>
+            <Box sx={{ position: 'relative', display: 'inline-flex' }}>
+              <MailOutlineIcon fontSize="small" />
+              {hasUnread ? (
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    top: -2,
+                    right: -4,
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    bgcolor: '#ff2d55'
+                  }}
+                />
+              ) : null}
+            </Box>
+          </ListItemIcon>
+          {t('menu.account.inbox')}
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            handleAccountClose();
+            toggleMode();
+          }}
+          sx={{ color: 'inherit' }}
+        >
+          <ListItemIcon sx={{ color: 'inherit', minWidth: 32 }}>
+            {mode === 'dark' ? <LightModeIcon fontSize="small" /> : <DarkModeIcon fontSize="small" />}
+          </ListItemIcon>
+          {mode === 'dark' ? t('menu.account.lightMode') : t('menu.account.darkMode')}
         </MenuItem>
         {isStaff ? (
           <MenuItem
@@ -412,7 +524,7 @@ const App: React.FC = () => {
             top: 0,
             left: 0,
             width: '100vw',
-            height: '100vh',
+            height: '100dvh',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'flex-start',
@@ -440,38 +552,48 @@ const App: React.FC = () => {
         id="main-scroll"
         sx={{
           pt: isHome && activeSection === 'home' ? 0 : `${appBarHeight}px`,
-          height: '100vh',
+          height: '100dvh',
           overflowY: 'auto',
           overflowX: 'hidden',
-          bgcolor: isHome && activeSection === 'home' ? '#0088ff' : '#ffffff',
-          scrollBehavior: 'smooth'
+          bgcolor:
+            isHome && activeSection === 'home' ? '#0088ff' : theme.palette.background.default,
+          scrollBehavior: 'smooth',
+          WebkitOverflowScrolling: 'touch'
         }}
       >
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/lager" element={<ContentPage titleKey="menu.home.camp" />} />
-          <Route path="/termine" element={<ContentPage titleKey="menu.home.dates" />} />
-          <Route path="/anmeldung" element={<Login />} />
-          <Route path="/anmeldung/login" element={<Login />} />
-          <Route path="/anmeldung/signup" element={<SignUp />} />
+          <Route path="/lager-aktuell" element={<Home />} />
+          <Route path="/team" element={<Home />} />
+          <Route path="/downloads" element={<Home />} />
+          <Route path="/galerie" element={<Home />} />
+          <Route path="/das-lager" element={<Home />} />
+          <Route path="/lager" element={<Home />} />
+          <Route path="/termine" element={<Home />} />
+          <Route path="/lager-aktuell/berichte" element={<Home />} />
+          <Route path="/lager-aktuell/bilder" element={<Home />} />
+          <Route path="/anmeldung" element={<Home />} />
+          <Route path="/anmeldung/login" element={<Home />} />
+          <Route path="/anmeldung/signup" element={<Home />} />
           <Route path="/anmeldung/user-management" element={<UserManagement />} />
-          <Route path="/konto" element={<ContentPage titleKey="menu.account.manage" />} />
+          <Route path="/konto" element={<AccountPage />} />
+          <Route path="/postfach" element={<Inbox />} />
           <Route path="/einstellungen" element={<ContentPage titleKey="menu.account.settings" />} />
-          <Route path="/aenderungshistorie" element={<ContentPage titleKey="menu.account.history" />} />
-          <Route path="/team/leitung" element={<ContentPage titleKey="menu.team.leadership" />} />
-          <Route path="/team/betreuer" element={<ContentPage titleKey="menu.team.caretakers" />} />
-          <Route path="/team/kochteam" element={<ContentPage titleKey="menu.team.kitchen" />} />
-          <Route path="/team/qualifikation" element={<ContentPage titleKey="menu.team.training" />} />
-          <Route path="/downloads/packliste" element={<ContentPage titleKey="menu.downloads.packlist" />} />
-          <Route path="/downloads/einverstaendnis" element={<ContentPage titleKey="menu.downloads.consents" />} />
-          <Route path="/downloads/elterninfos" element={<ContentPage titleKey="menu.downloads.parents" />} />
-          <Route path="/downloads/notfall" element={<ContentPage titleKey="menu.downloads.emergency" />} />
-          <Route path="/galerie/aktuell" element={<ContentPage titleKey="menu.gallery.current" />} />
-          <Route path="/galerie/vergangene" element={<ContentPage titleKey="menu.gallery.past" />} />
-          <Route path="/das-lager/was-erwartet" element={<ContentPage titleKey="menu.camp.expect" />} />
-          <Route path="/das-lager/tagesablauf" element={<ContentPage titleKey="menu.camp.schedule" />} />
-          <Route path="/das-lager/spiele" element={<ContentPage titleKey="menu.camp.games" />} />
-          <Route path="/das-lager/unterkunft" element={<ContentPage titleKey="menu.camp.location" />} />
+          <Route path="/aenderungshistorie" element={<HistoryPage />} />
+          <Route path="/team/leitung" element={<Home />} />
+          <Route path="/team/betreuer" element={<Home />} />
+          <Route path="/team/kochteam" element={<Home />} />
+          <Route path="/team/qualifikation" element={<Home />} />
+          <Route path="/downloads/packliste" element={<Home />} />
+          <Route path="/downloads/einverstaendnis" element={<Home />} />
+          <Route path="/downloads/elterninfos" element={<Home />} />
+          <Route path="/downloads/notfall" element={<Home />} />
+          <Route path="/galerie/aktuell" element={<Home />} />
+          <Route path="/galerie/vergangene" element={<Home />} />
+          <Route path="/das-lager/was-erwartet" element={<Home />} />
+          <Route path="/das-lager/tagesablauf" element={<Home />} />
+          <Route path="/das-lager/spiele" element={<Home />} />
+          <Route path="/das-lager/unterkunft" element={<Home />} />
         </Routes>
       </Box>
     </Box>

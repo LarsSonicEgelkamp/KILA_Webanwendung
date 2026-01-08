@@ -1,25 +1,42 @@
 import React from 'react';
-import { Box, Button, IconButton, Menu, MenuItem, TextField, Typography } from '@mui/material';
+import {
+  Box,
+  Button,
+  IconButton,
+  Menu,
+  MenuItem,
+  TextField,
+  Typography,
+  useMediaQuery,
+  useTheme
+} from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ImageIcon from '@mui/icons-material/Image';
 import TextFieldsIcon from '@mui/icons-material/TextFields';
 import TitleIcon from '@mui/icons-material/Title';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
+import ImageCropDialog from './ImageCropDialog';
 import {
   ContentBlock,
   BlockType,
   createContentBlock,
   deleteContentBlock,
+  deleteContentImage,
   listContentBlocks,
   updateContentBlock,
   uploadContentImage
 } from '../lib/contentBlocks';
 
 type ContentBlocksProps = {
-  sectionId: string;
+  contentSectionId: string;
+  buildSnapshot?: (blocks: ContentBlock[]) => string;
+  onHistory?: (beforeSnapshot: string, afterSnapshot: string) => void;
   canEdit: boolean;
   editing: boolean;
+  onHasBlocksChange?: (hasBlocks: boolean) => void;
 };
 
 type ResizeState = {
@@ -30,46 +47,140 @@ type ResizeState = {
 
 const clampWidth = (value: number) => Math.min(12, Math.max(3, value));
 
-const ContentBlocks: React.FC<ContentBlocksProps> = ({ sectionId, canEdit, editing }) => {
+const ContentBlocks: React.FC<ContentBlocksProps> = ({
+  contentSectionId,
+  buildSnapshot,
+  onHistory,
+  canEdit,
+  editing,
+  onHasBlocksChange
+}) => {
   const [blocks, setBlocks] = React.useState<ContentBlock[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
-  const [menuContext, setMenuContext] = React.useState<{ anchorEl: HTMLElement | null; insertIndex: number }>({
+  const [menuContext, setMenuContext] = React.useState<{
+    anchorEl: HTMLElement | null;
+    insertIndex: number;
+    preferredWidth?: number;
+    allowedTypes?: BlockType[];
+  }>({
     anchorEl: null,
-    insertIndex: 0
+    insertIndex: 0,
+    preferredWidth: undefined,
+    allowedTypes: undefined
   });
   const [uploading, setUploading] = React.useState(false);
   const [resizeState, setResizeState] = React.useState<ResizeState | null>(null);
   const [replaceTargetId, setReplaceTargetId] = React.useState<string | null>(null);
   const [pendingInsertIndex, setPendingInsertIndex] = React.useState<number | null>(null);
+  const [pendingInsertWidth, setPendingInsertWidth] = React.useState<number | null>(null);
   const [draggingId, setDraggingId] = React.useState<string | null>(null);
   const [dropIndex, setDropIndex] = React.useState<number | null>(null);
+  const [cropDialogOpen, setCropDialogOpen] = React.useState(false);
   const gridRef = React.useRef<HTMLDivElement | null>(null);
-  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const saveTimers = React.useRef<Record<string, number>>({});
+  const latestContent = React.useRef<Record<string, string>>({});
+  const blocksRef = React.useRef<ContentBlock[]>([]);
+  const wasEditing = React.useRef(editing);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
+  React.useEffect(
+    () => () => {
+      Object.values(saveTimers.current).forEach((timerId) => window.clearTimeout(timerId));
+      saveTimers.current = {};
+    },
+    []
+  );
 
   const loadBlocks = React.useCallback(async () => {
     try {
       setLoading(true);
       setError('');
-      const data = await listContentBlocks(sectionId);
+      const data = await listContentBlocks(contentSectionId);
       setBlocks(data);
     } catch (err) {
       setError('Fehler beim Laden der Inhalte.');
     } finally {
       setLoading(false);
     }
-  }, [sectionId]);
+  }, [contentSectionId]);
 
   React.useEffect(() => {
     loadBlocks();
   }, [loadBlocks]);
 
-  const openMenu = (event: React.MouseEvent<HTMLElement>, insertIndex: number) => {
-    setMenuContext({ anchorEl: event.currentTarget, insertIndex });
+  React.useEffect(() => {
+    onHasBlocksChange?.(blocks.length > 0);
+  }, [blocks.length, onHasBlocksChange]);
+
+  React.useEffect(() => {
+    blocksRef.current = blocks;
+  }, [blocks]);
+
+  const recordHistory = (beforeBlocks: ContentBlock[], afterBlocks: ContentBlock[]) => {
+    if (!buildSnapshot || !onHistory) {
+      return;
+    }
+    const beforeSnapshot = buildSnapshot(beforeBlocks);
+    const afterSnapshot = buildSnapshot(afterBlocks);
+    if (beforeSnapshot === afterSnapshot) {
+      return;
+    }
+    onHistory(beforeSnapshot, afterSnapshot);
+  };
+
+  const isBlockEmpty = (block: ContentBlock) => {
+    if (block.type === 'image') {
+      return !block.imageUrl;
+    }
+    const content = (block.content ?? '')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .trim();
+    return content.length === 0;
+  };
+
+  const cleanupEmptyBlocks = async () => {
+    const emptyBlocks = blocks.filter(isBlockEmpty);
+    if (emptyBlocks.length === 0) {
+      return;
+    }
+    try {
+      await Promise.all(
+        emptyBlocks.map(async (block) => {
+          await deleteContentBlock(block.id);
+          if (block.imageUrl) {
+            await deleteContentImage(block.imageUrl);
+          }
+        })
+      );
+      const remaining = blocks.filter((block) => !emptyBlocks.some((empty) => empty.id === block.id));
+      setBlocks(remaining);
+      onHasBlocksChange?.(remaining.length > 0);
+    } catch {
+      setError('Leere Bloecke konnten nicht entfernt werden.');
+    }
+  };
+
+  React.useEffect(() => {
+    if (wasEditing.current && !editing) {
+      cleanupEmptyBlocks();
+    }
+    wasEditing.current = editing;
+  }, [editing, blocks]);
+
+  const openMenu = (
+    event: React.MouseEvent<HTMLElement>,
+    insertIndex: number,
+    preferredWidth?: number,
+    allowedTypes?: BlockType[]
+  ) => {
+    setMenuContext({ anchorEl: event.currentTarget, insertIndex, preferredWidth, allowedTypes });
   };
 
   const closeMenu = () => {
-    setMenuContext({ anchorEl: null, insertIndex: blocks.length });
+    setMenuContext({ anchorEl: null, insertIndex: blocks.length, preferredWidth: undefined, allowedTypes: undefined });
   };
 
   const persistOrder = async (nextBlocks: ContentBlock[], originalMap: Map<string, number>) => {
@@ -90,14 +201,21 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({ sectionId, canEdit, editi
     }
   };
 
-  const insertBlockAt = async (type: BlockType, insertIndex: number, imageUrl?: string) => {
+  const insertBlockAt = async (
+    type: BlockType,
+    insertIndex: number,
+    imageUrl?: string,
+    preferredWidth?: number
+  ) => {
     try {
+      const beforeBlocks = blocks;
+      const width = clampWidth(preferredWidth ?? (type === 'image' ? 6 : 12));
       const newBlock = await createContentBlock({
-        sectionId,
+        sectionId: contentSectionId,
         type,
         content: type === 'image' ? null : '',
         imageUrl: type === 'image' ? imageUrl ?? null : null,
-        width: type === 'image' ? 6 : 12,
+        width,
         orderIndex: insertIndex + 1
       });
       const nextBlocks = [...blocks];
@@ -106,6 +224,7 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({ sectionId, canEdit, editi
       originalMap.set(newBlock.id, newBlock.orderIndex);
       const ordered = await persistOrder(nextBlocks, originalMap);
       setBlocks(ordered);
+      recordHistory(beforeBlocks, ordered);
     } catch {
       setError('Konnte Block nicht anlegen.');
     }
@@ -116,33 +235,38 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({ sectionId, canEdit, editi
     if (type === 'image') {
       setReplaceTargetId(null);
       setPendingInsertIndex(menuContext.insertIndex);
-      fileInputRef.current?.click();
+      setPendingInsertWidth(menuContext.preferredWidth ?? null);
+      setCropDialogOpen(true);
       return;
     }
-    await insertBlockAt(type, menuContext.insertIndex);
+    await insertBlockAt(type, menuContext.insertIndex, undefined, menuContext.preferredWidth);
   };
 
-  const handleImageSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) {
-      return;
-    }
+  const handleCroppedImage = async (file: File) => {
     try {
       setUploading(true);
-      const imageUrl = await uploadContentImage(sectionId, file);
+      const imageUrl = await uploadContentImage(contentSectionId, file);
       if (replaceTargetId) {
+        const beforeBlocks = blocks;
+        const target = blocks.find((block) => block.id === replaceTargetId);
         const updated = await updateContentBlock(replaceTargetId, { imageUrl });
-        setBlocks((prev) => prev.map((block) => (block.id === updated.id ? updated : block)));
+        const nextBlocks = blocks.map((block) => (block.id === updated.id ? updated : block));
+        setBlocks(nextBlocks);
+        recordHistory(beforeBlocks, nextBlocks);
+        if (target?.imageUrl) {
+          await deleteContentImage(target.imageUrl);
+        }
       } else if (pendingInsertIndex !== null) {
-        await insertBlockAt('image', pendingInsertIndex, imageUrl);
+        await insertBlockAt('image', pendingInsertIndex, imageUrl, pendingInsertWidth ?? undefined);
       }
+      setCropDialogOpen(false);
     } catch {
       setError('Bild konnte nicht hochgeladen werden.');
     } finally {
       setUploading(false);
       setReplaceTargetId(null);
       setPendingInsertIndex(null);
+      setPendingInsertWidth(null);
     }
   };
 
@@ -156,17 +280,83 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({ sectionId, canEdit, editi
       return;
     }
     try {
+      const beforeBlocks = blocks;
       const updated = await updateContentBlock(id, { content: block.content ?? '' });
-      setBlocks((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      const nextBlocks = blocks.map((item) => (item.id === updated.id ? updated : item));
+      setBlocks(nextBlocks);
+      recordHistory(beforeBlocks, nextBlocks);
     } catch {
       setError('Aenderung konnte nicht gespeichert werden.');
     }
   };
 
+  const scheduleContentSave = (id: string, value: string) => {
+    if (saveTimers.current[id]) {
+      window.clearTimeout(saveTimers.current[id]);
+    }
+    latestContent.current[id] = value;
+    handleContentChange(id, value);
+    saveTimers.current[id] = window.setTimeout(async () => {
+      const payload = latestContent.current[id] ?? '';
+      try {
+        const updated = await updateContentBlock(id, { content: payload });
+        setBlocks((prev) => {
+          const nextBlocks = prev.map((item) => (item.id === updated.id ? updated : item));
+          recordHistory(prev, nextBlocks);
+          return nextBlocks;
+        });
+      } catch {
+        setError('Aenderung konnte nicht gespeichert werden.');
+      }
+    }, 600);
+  };
+
+  const isHtmlContent = (value?: string | null) => {
+    if (!value) {
+      return false;
+    }
+    return /<\/?[a-z][\s\S]*>/i.test(value);
+  };
+
+  const formatPlainText = (value?: string | null) => {
+    if (!value) {
+      return '';
+    }
+    const escaped = value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    const paragraphs = escaped.split(/\n{2,}/).map((para) => para.replace(/\n/g, '<br/>'));
+    return paragraphs.map((para) => `<p>${para}</p>`).join('');
+  };
+
+  const quillModules = React.useMemo(
+    () => ({
+      toolbar: [
+        [{ header: [2, 3, false] }],
+        ['bold', 'italic', 'underline', 'strike'],
+        [{ color: [] }, { background: [] }],
+        [{ align: [] }],
+        [{ list: 'ordered' }, { list: 'bullet' }],
+        ['link'],
+        ['clean']
+      ]
+    }),
+    []
+  );
+
   const handleDelete = async (id: string) => {
     try {
+      const beforeBlocks = blocks;
+      const target = blocks.find((block) => block.id === id);
       await deleteContentBlock(id);
-      setBlocks((prev) => prev.filter((block) => block.id !== id));
+      if (target?.imageUrl) {
+        await deleteContentImage(target.imageUrl);
+      }
+      const nextBlocks = blocks.filter((block) => block.id !== id);
+      setBlocks(nextBlocks);
+      recordHistory(beforeBlocks, nextBlocks);
+      onHasBlocksChange?.(nextBlocks.length > 0);
     } catch {
       setError('Block konnte nicht entfernt werden.');
     }
@@ -202,8 +392,13 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({ sectionId, canEdit, editi
         return;
       }
       try {
+        const beforeBlocks = blocksRef.current;
         const updated = await updateContentBlock(target.id, { width: target.width });
-        setBlocks((prev) => prev.map((block) => (block.id === updated.id ? updated : block)));
+        setBlocks((prev) => {
+          const nextBlocks = prev.map((block) => (block.id === updated.id ? updated : block));
+          recordHistory(beforeBlocks, nextBlocks);
+          return nextBlocks;
+        });
       } catch {
         setError('Breite konnte nicht gespeichert werden.');
       }
@@ -258,6 +453,7 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({ sectionId, canEdit, editi
     const originalMap = new Map(blocks.map((block) => [block.id, block.orderIndex]));
     const ordered = await persistOrder(nextBlocks, originalMap);
     setBlocks(ordered);
+    recordHistory(blocks, ordered);
   };
 
   if (loading && blocks.length === 0) {
@@ -272,7 +468,7 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({ sectionId, canEdit, editi
         </Typography>
       ) : null}
 
-      {canEdit && editing ? (
+      {canEdit && editing && blocks.length > 0 ? (
         <Box
           sx={{ mb: 2 }}
           onDragOver={(event) => handleDragOver(event, 0)}
@@ -284,7 +480,7 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({ sectionId, canEdit, editi
             startIcon={<AddIcon />}
             onClick={(event) => openMenu(event, 0)}
             disabled={uploading}
-            sx={{ borderStyle: 'dashed' }}
+            sx={{ borderStyle: 'dashed', width: { xs: '100%', sm: 'auto' } }}
           >
             Block oben einfuegen
           </Button>
@@ -295,30 +491,76 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({ sectionId, canEdit, editi
         ref={gridRef}
         sx={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(12, minmax(0, 1fr))',
-          gap: 2
+          gridTemplateColumns: { xs: 'repeat(1, minmax(0, 1fr))', md: 'repeat(12, minmax(0, 1fr))' },
+          gap: { xs: 1.5, md: 2 },
+          alignItems: 'stretch'
         }}
       >
-        {blocks.map((block, index) => (
-          <Box
-            key={block.id}
-            sx={{
-              gridColumn: `span ${block.width}`,
-              position: 'relative',
-              p: editing ? 2 : 0,
-              borderRadius: 2,
-              border: editing
-                ? dropIndex === index
-                  ? '1px dashed #0088ff'
-                  : '1px solid rgba(0,0,0,0.08)'
-                : 'none',
-              bgcolor: editing ? 'rgba(255,255,255,0.6)' : 'transparent',
-              opacity: draggingId === block.id ? 0.6 : 1
-            }}
-            onDragOver={editing ? (event) => handleDragOver(event, index) : undefined}
-            onDrop={editing ? (event) => handleDrop(event, index) : undefined}
-            onDragLeave={editing ? handleDragLeave : undefined}
-          >
+        {blocks.map((block, index) => {
+          let rowWidth = 0;
+          let rowHasImage = false;
+          for (let i = 0; i <= index; i += 1) {
+            const current = blocks[i];
+            if (rowWidth + current.width > 12) {
+              rowWidth = 0;
+              rowHasImage = false;
+            }
+            rowWidth += current.width;
+            rowHasImage = rowHasImage || current.type === 'image';
+          }
+          const nextBlock = blocks[index + 1];
+          const isRowEnd = !nextBlock || rowWidth + nextBlock.width > 12;
+          const remainingWidth = 12 - rowWidth;
+          const showInlineAdd = !isMobile && editing && isRowEnd && remainingWidth >= 3;
+          const allowedInlineTypes = rowHasImage ? (['heading', 'text'] as BlockType[]) : undefined;
+          return (
+            <React.Fragment key={block.id}>
+              <Box
+                sx={{
+                  gridColumn: { xs: '1 / -1', md: `span ${block.width}` },
+                  position: 'relative',
+                  p: editing ? { xs: 1.5, md: 2 } : 0,
+                  pr: editing ? { xs: 3, md: 4 } : 0,
+                  borderRadius: 2,
+                  border: editing
+                    ? dropIndex === index
+                      ? '1px dashed #0088ff'
+                      : '1px solid rgba(0,0,0,0.08)'
+                    : 'none',
+                  bgcolor: editing ? 'rgba(255,255,255,0.6)' : 'transparent',
+                  opacity: draggingId === block.id ? 0.6 : 1
+                }}
+                onDragOver={editing ? (event) => handleDragOver(event, index) : undefined}
+                onDrop={editing ? (event) => handleDrop(event, index) : undefined}
+                onDragLeave={editing ? handleDragLeave : undefined}
+              >
+                {editing ? (
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 1,
+                      mb: 1
+                    }}
+                  >
+                    <IconButton
+                      size="small"
+                      draggable
+                      onDragStart={(event) => handleDragStart(event, block.id)}
+                      onDragEnd={handleDragEnd}
+                      sx={{ cursor: 'grab' }}
+                    >
+                      <DragIndicatorIcon fontSize="small" />
+                    </IconButton>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <IconButton size="small" onClick={() => handleDelete(block.id)}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+                  </Box>
+                ) : null}
+
             {block.type === 'heading' ? (
               editing ? (
                 <TextField
@@ -328,6 +570,13 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({ sectionId, canEdit, editi
                   placeholder="Ueberschrift"
                   fullWidth
                   size="small"
+                  sx={{
+                    '& .MuiInputBase-input': {
+                      fontSize: (theme) => theme.typography.h5.fontSize,
+                      fontWeight: (theme) => theme.typography.h5.fontWeight,
+                      lineHeight: (theme) => theme.typography.h5.lineHeight
+                    }
+                  }}
                 />
               ) : (
                 <Typography variant="h5" sx={{ fontWeight: 700 }}>
@@ -338,19 +587,26 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({ sectionId, canEdit, editi
 
             {block.type === 'text' ? (
               editing ? (
-                <TextField
-                  value={block.content ?? ''}
-                  onChange={(event) => handleContentChange(block.id, event.target.value)}
-                  onBlur={() => handleContentSave(block.id)}
-                  placeholder="Text"
-                  fullWidth
-                  multiline
-                  minRows={3}
-                  inputProps={{ maxLength: 1000 }}
-                  helperText={`${(block.content ?? '').length}/1000`}
-                />
+                <Box sx={{ '& .ql-toolbar': { borderRadius: '12px 12px 0 0' }, '& .ql-container': { borderRadius: '0 0 12px 12px' } }}>
+                  <ReactQuill
+                    theme="snow"
+                    value={block.content ?? ''}
+                    onChange={(value) => scheduleContentSave(block.id, value)}
+                    modules={quillModules}
+                    placeholder="Text"
+                  />
+                </Box>
               ) : (
-                <Typography sx={{ fontSize: '1rem' }}>{block.content}</Typography>
+                <Box
+                  sx={{
+                    fontSize: '1rem',
+                    '& p': { margin: 0, marginBottom: 1.5 },
+                    '& p:last-of-type': { marginBottom: 0 }
+                  }}
+                  dangerouslySetInnerHTML={{
+                    __html: isHtmlContent(block.content) ? (block.content ?? '') : formatPlainText(block.content)
+                  }}
+                />
               )
             ) : null}
 
@@ -359,85 +615,98 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({ sectionId, canEdit, editi
                 sx={{
                   borderRadius: 2,
                   overflow: 'hidden',
-                  border: editing ? '1px solid rgba(0,0,0,0.08)' : 'none'
+                  border: editing ? '1px solid rgba(0,0,0,0.08)' : 'none',
+                  bgcolor: 'rgba(0,0,0,0.04)'
                 }}
               >
                 {block.imageUrl ? (
-                  <Box component="img" src={block.imageUrl} alt="" sx={{ width: '100%', height: 'auto' }} />
+                  <Box
+                    component="img"
+                    src={block.imageUrl}
+                    alt=""
+                    sx={{ width: '100%', height: 'auto', objectFit: 'contain', display: 'block' }}
+                  />
                 ) : (
                   <Box
                     sx={{
-                      minHeight: 120,
+                      minHeight: 160,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       color: 'text.secondary'
                     }}
                   >
-                    Kein Bild
+                    Noch kein Bild
                   </Box>
                 )}
                 {editing ? (
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1 }}>
-                    <Button
-                      size="small"
-                      startIcon={<ImageIcon />}
-                      onClick={() => {
-                        setReplaceTargetId(block.id);
-                        fileInputRef.current?.click();
-                      }}
-                    >
-                      Bild tauschen
-                    </Button>
-                  </Box>
+                      <Button
+                        size="small"
+                        startIcon={<ImageIcon />}
+                        onClick={() => {
+                          setReplaceTargetId(block.id);
+                          setCropDialogOpen(true);
+                        }}
+                      >
+                        Bild tauschen
+                      </Button>
+                    </Box>
                 ) : null}
               </Box>
             ) : null}
 
-            {editing ? (
-              <Box sx={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 0.5 }}>
-                <IconButton
-                  size="small"
-                  onClick={(event) => openMenu(event, index + 1)}
-                >
-                  <AddIcon fontSize="small" />
-                </IconButton>
-                <IconButton size="small" onClick={() => handleDelete(block.id)}>
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
+                {editing ? (
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      right: 6,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      cursor: 'ew-resize',
+                      color: 'rgba(0,0,0,0.35)',
+                      zIndex: 1,
+                      bgcolor: 'rgba(255,255,255,0.9)',
+                      borderRadius: 999,
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.12)'
+                    }}
+                    onPointerDown={(event) => handleResizeStart(event, block)}
+                  >
+                    <DragIndicatorIcon fontSize="small" />
+                  </Box>
+                ) : null}
               </Box>
-            ) : null}
 
-            {editing ? (
-              <Box
-                sx={{
-                  position: 'absolute',
-                  right: -6,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  cursor: 'ew-resize',
-                  color: 'rgba(0,0,0,0.35)'
-                }}
-                onPointerDown={(event) => handleResizeStart(event, block)}
-              >
-                <DragIndicatorIcon fontSize="small" />
-              </Box>
-            ) : null}
-
-            {editing ? (
-              <Box sx={{ position: 'absolute', left: 6, bottom: 6 }}>
-                <IconButton
-                  size="small"
-                  draggable
-                  onDragStart={(event) => handleDragStart(event, block.id)}
-                  onDragEnd={handleDragEnd}
+                {showInlineAdd ? (
+                  <Box
+                    sx={{
+                      gridColumn: `span ${remainingWidth}`,
+                      borderRadius: 2,
+                      border: dropIndex === index + 1 ? '1px dashed #0088ff' : '1px dashed rgba(0,0,0,0.25)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minHeight: { xs: 120, md: 160 },
+                      height: '100%',
+                      alignSelf: 'stretch',
+                      px: 2
+                    }}
+                  onDragOver={(event) => handleDragOver(event, index + 1)}
+                  onDrop={(event) => handleDrop(event, index + 1)}
+                  onDragLeave={handleDragLeave}
                 >
-                  <DragIndicatorIcon fontSize="small" />
-                </IconButton>
-              </Box>
-            ) : null}
-          </Box>
-        ))}
+                  <Button
+                    variant="text"
+                    startIcon={<AddIcon />}
+                    onClick={(event) => openMenu(event, index + 1, remainingWidth, allowedInlineTypes)}
+                  >
+                    Block hinzufuegen
+                  </Button>
+                </Box>
+              ) : null}
+            </React.Fragment>
+          );
+        })}
       </Box>
 
       {canEdit && editing ? (
@@ -449,7 +718,8 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({ sectionId, canEdit, editi
             gap: 2,
             border: dropIndex === blocks.length ? '1px dashed #0088ff' : '1px dashed rgba(0,0,0,0.3)',
             borderRadius: 2,
-            p: 2
+            p: 2,
+            flexWrap: 'wrap'
           }}
           onDragOver={(event) => handleDragOver(event, blocks.length)}
           onDrop={(event) => handleDrop(event, blocks.length)}
@@ -460,6 +730,7 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({ sectionId, canEdit, editi
             startIcon={<AddIcon />}
             onClick={(event) => openMenu(event, blocks.length)}
             disabled={uploading}
+            sx={{ width: { xs: '100%', sm: 'auto' } }}
           >
             Block hinzufuegen
           </Button>
@@ -468,23 +739,32 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({ sectionId, canEdit, editi
       ) : null}
 
       <Menu anchorEl={menuContext.anchorEl} open={Boolean(menuContext.anchorEl)} onClose={closeMenu}>
-        <MenuItem onClick={() => handleCreateBlock('heading')}>
-          <TitleIcon sx={{ mr: 1 }} /> Ueberschrift (einzeilig)
-        </MenuItem>
-        <MenuItem onClick={() => handleCreateBlock('text')}>
-          <TextFieldsIcon sx={{ mr: 1 }} /> Textfeld gross
-        </MenuItem>
-        <MenuItem onClick={() => handleCreateBlock('image')}>
-          <ImageIcon sx={{ mr: 1 }} /> Bild hochladen
-        </MenuItem>
+        {!menuContext.allowedTypes || menuContext.allowedTypes.includes('heading') ? (
+          <MenuItem onClick={() => handleCreateBlock('heading')}>
+            <TitleIcon sx={{ mr: 1 }} /> Ueberschrift (einzeilig)
+          </MenuItem>
+        ) : null}
+        {!menuContext.allowedTypes || menuContext.allowedTypes.includes('text') ? (
+          <MenuItem onClick={() => handleCreateBlock('text')}>
+            <TextFieldsIcon sx={{ mr: 1 }} /> Textfeld gross
+          </MenuItem>
+        ) : null}
+        {!menuContext.allowedTypes || menuContext.allowedTypes.includes('image') ? (
+          <MenuItem onClick={() => handleCreateBlock('image')}>
+            <ImageIcon sx={{ mr: 1 }} /> Bild hochladen
+          </MenuItem>
+        ) : null}
       </Menu>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        hidden
-        onChange={handleImageSelect}
+      <ImageCropDialog
+        open={cropDialogOpen}
+        onClose={() => {
+          setCropDialogOpen(false);
+          setPendingInsertIndex(null);
+          setReplaceTargetId(null);
+          setPendingInsertWidth(null);
+        }}
+        onConfirm={handleCroppedImage}
       />
     </Box>
   );

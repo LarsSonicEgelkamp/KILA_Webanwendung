@@ -8,6 +8,7 @@ export type User = {
   name: string;
   email: string;
   role: Role;
+  avatarUrl: string | null;
 };
 
 type RegisterInput = {
@@ -35,6 +36,9 @@ type AuthContextValue = {
   login: (email: string, password: string) => Promise<AuthResult>;
   logout: () => Promise<void>;
   updateRole: (id: string, role: Role) => Promise<AuthResult>;
+  deleteUser: (id: string) => Promise<AuthResult>;
+  updateAvatar: (avatarUrl: string | null) => Promise<AuthResult>;
+  refreshUsers: () => Promise<void>;
 };
 
 const AuthContext = React.createContext<AuthContextValue | undefined>(undefined);
@@ -66,11 +70,13 @@ const profileFromRow = (row: {
   name: string | null;
   email: string | null;
   role: Role | null;
+  avatar_url: string | null;
 }): User => ({
   id: row.id,
   name: row.name ?? 'User',
   email: row.email ?? '',
-  role: row.role ?? 'user'
+  role: row.role ?? 'user',
+  avatarUrl: row.avatar_url ?? null
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -79,7 +85,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = React.useState(true);
 
   const fetchProfile = React.useCallback(async (id: string, fallback?: { name?: string; email?: string }) => {
-    const { data, error } = await supabase.from('profiles').select('id, name, email, role').eq('id', id).single();
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, name, email, role, avatar_url')
+      .eq('id', id)
+      .single();
     if (data) {
       return profileFromRow(data);
     }
@@ -90,13 +100,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       id,
       name: fallback?.name?.trim() || 'User',
       email: fallback?.email?.trim() || '',
-      role: 'user'
+      role: 'user',
+      avatarUrl: null
     };
     const { error: insertError } = await supabase.from('profiles').insert({
       id: profile.id,
       name: profile.name,
       email: profile.email,
-      role: profile.role
+      role: profile.role,
+      avatar_url: profile.avatarUrl
     });
     if (insertError) {
       return null;
@@ -105,7 +117,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const refreshUsers = React.useCallback(async () => {
-    const { data } = await supabase.from('profiles').select('id, name, email, role').order('name');
+    const { data } = await supabase.from('profiles').select('id, name, email, role, avatar_url').order('name');
     setUsers((data ?? []).map(profileFromRow));
   }, []);
 
@@ -191,6 +203,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateRole = async (id: string, role: Role): Promise<AuthResult> => {
+    if (role === 'admin') {
+      return { ok: false, error: 'server_error' };
+    }
     const { error } = await supabase.from('profiles').update({ role }).eq('id', id);
     if (error) {
       return { ok: false, error: 'server_error' };
@@ -199,8 +214,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { ok: true };
   };
 
+  const deleteUser = async (id: string): Promise<AuthResult> => {
+    const { error } = await supabase.from('profiles').delete().eq('id', id);
+    if (error) {
+      return { ok: false, error: 'server_error' };
+    }
+    await refreshUsers();
+    return { ok: true };
+  };
+
+  const updateAvatar = async (avatarUrl: string | null): Promise<AuthResult> => {
+    if (!user) {
+      return { ok: false, error: 'server_error' };
+    }
+    const { error } = await supabase.from('profiles').update({ avatar_url: avatarUrl }).eq('id', user.id);
+    if (error) {
+      return { ok: false, error: 'server_error' };
+    }
+    setUser((prev) => (prev ? { ...prev, avatarUrl } : prev));
+    setUsers((prev) => prev.map((item) => (item.id === user.id ? { ...item, avatarUrl } : item)));
+    return { ok: true };
+  };
+
   return (
-    <AuthContext.Provider value={{ user, users, loading, register, login, logout, updateRole }}>
+    <AuthContext.Provider
+      value={{ user, users, loading, register, login, logout, updateRole, deleteUser, updateAvatar, refreshUsers }}
+    >
       {children}
     </AuthContext.Provider>
   );

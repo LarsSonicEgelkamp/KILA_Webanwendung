@@ -1,6 +1,6 @@
 import React from 'react';
 
-export type SectionId = 'home' | 'team' | 'downloads' | 'gallery' | 'camp' | 'registration';
+export type SectionId = 'home' | 'campYear' | 'team' | 'downloads' | 'gallery' | 'camp' | 'registration';
 
 type SectionContextValue = {
   activeSection: SectionId;

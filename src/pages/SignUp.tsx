@@ -1,10 +1,12 @@
 import React from 'react';
-import { Box, Button, IconButton, InputAdornment, TextField, Typography } from '@mui/material';
+import { Box, Button, Checkbox, FormControlLabel, IconButton, InputAdornment, TextField, Typography } from '@mui/material';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import { supabase } from '../lib/supabaseClient';
+import { sendMessageToRecipients } from '../lib/messages';
 
 type SignUpProps = {
   embedded?: boolean;
@@ -13,11 +15,12 @@ type SignUpProps = {
 const SignUp: React.FC<SignUpProps> = ({ embedded = false }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { user, register } = useAuth();
+  const { user, register, logout } = useAuth();
   const [name, setName] = React.useState('');
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [showPassword, setShowPassword] = React.useState(false);
+  const [wantsLeadership, setWantsLeadership] = React.useState(false);
   const [error, setError] = React.useState('');
   const [success, setSuccess] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
@@ -50,13 +53,34 @@ const SignUp: React.FC<SignUpProps> = ({ embedded = false }) => {
       }
       return;
     }
-    setSuccess(t('auth.success.created'));
-    if (!user) {
-      navigate('/');
+    if (wantsLeadership) {
+      try {
+        const { data } = await supabase.auth.getUser();
+        const currentUser = data.user;
+        if (currentUser) {
+          const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin');
+          const recipientIds = (admins ?? []).map((admin) => admin.id);
+          if (recipientIds.length > 0) {
+            await sendMessageToRecipients({
+              senderId: currentUser.id,
+              senderName: name.trim() || 'User',
+              senderAvatarUrl: null,
+              recipientIds,
+              body: `User ${name.trim()} (${email.trim()}) moechte sich als Leitung registrieren.`,
+              isBroadcast: false
+            });
+          }
+        }
+      } catch {
+        // Ignore notification errors to avoid blocking registration flow.
+      }
     }
+    setSuccess(t('auth.success.created'));
+    navigate('/', { replace: true });
     setName('');
     setEmail('');
     setPassword('');
+    setWantsLeadership(false);
   };
 
   return (
@@ -66,22 +90,32 @@ const SignUp: React.FC<SignUpProps> = ({ embedded = false }) => {
           {t('auth.signup')}
         </Typography>
       ) : null}
-      <Box component="form" onSubmit={handleSubmit} sx={{ display: 'grid', gap: 2 }}>
-        <TextField
-          label={t('auth.name')}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          required
-          fullWidth
-        />
-        <TextField
-          label={t('auth.email')}
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          required
-          fullWidth
-        />
+      {user ? (
+        <Box sx={{ display: 'grid', gap: 2 }}>
+          <Typography>
+            {t('auth.loggedInAs', { name: user.name, role: t(`auth.roles.${user.role}`) })}
+          </Typography>
+          <Button variant="outlined" onClick={logout}>
+            {t('auth.logout')}
+          </Button>
+        </Box>
+      ) : (
+        <Box component="form" onSubmit={handleSubmit} sx={{ display: 'grid', gap: 2 }}>
+          <TextField
+            label={t('auth.name')}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            required
+            fullWidth
+          />
+          <TextField
+            label={t('auth.email')}
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+            fullWidth
+          />
         <TextField
           label={t('auth.password')}
           type={showPassword ? 'text' : 'password'}
@@ -89,30 +123,40 @@ const SignUp: React.FC<SignUpProps> = ({ embedded = false }) => {
           onChange={(event) => setPassword(event.target.value)}
           required
           fullWidth
-          InputProps={{
-            endAdornment: (
-              <InputAdornment position="end">
-                <IconButton
-                  aria-label="Passwort anzeigen"
-                  onMouseDown={() => setShowPassword(true)}
-                  onMouseUp={() => setShowPassword(false)}
-                  onMouseLeave={() => setShowPassword(false)}
-                  onTouchStart={() => setShowPassword(true)}
-                  onTouchEnd={() => setShowPassword(false)}
-                  edge="end"
-                >
-                  {showPassword ? <Visibility /> : <VisibilityOff />}
-                </IconButton>
-              </InputAdornment>
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    aria-label="Passwort anzeigen"
+                    onMouseDown={() => setShowPassword(true)}
+                    onMouseUp={() => setShowPassword(false)}
+                    onMouseLeave={() => setShowPassword(false)}
+                    onTouchStart={() => setShowPassword(true)}
+                    onTouchEnd={() => setShowPassword(false)}
+                    edge="end"
+                  >
+                    {showPassword ? <Visibility /> : <VisibilityOff />}
+                  </IconButton>
+                </InputAdornment>
             )
           }}
+        />
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={wantsLeadership}
+              onChange={(event) => setWantsLeadership(event.target.checked)}
+            />
+          }
+          label="Ich bin Mitglied des Leiterteams."
         />
         {error ? <Typography color="error">{error}</Typography> : null}
         {success ? <Typography color="success.main">{success}</Typography> : null}
         <Button type="submit" variant="contained" disabled={submitting}>
           {t('auth.signup')}
         </Button>
-      </Box>
+        </Box>
+      )}
     </Box>
   );
 };

@@ -39,7 +39,7 @@ const Login: React.FC<LoginProps> = ({ embedded = false }) => {
       }
       return;
     }
-    navigate('/');
+    navigate('/', { replace: true });
   };
 
   return (
@@ -59,53 +59,55 @@ const Login: React.FC<LoginProps> = ({ embedded = false }) => {
           </Button>
         </Box>
       ) : null}
-      <Box component="form" onSubmit={handleSubmit} sx={{ display: 'grid', gap: 2 }}>
-        <TextField
-          label={t('auth.email')}
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          required
-          fullWidth
-        />
-        <TextField
-          label={t('auth.password')}
-          type={showPassword ? 'text' : 'password'}
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          required
-          fullWidth
-          InputProps={{
-            endAdornment: (
-              <InputAdornment position="end">
-                <IconButton
-                  aria-label="Passwort anzeigen"
-                  onMouseDown={() => setShowPassword(true)}
-                  onMouseUp={() => setShowPassword(false)}
-                  onMouseLeave={() => setShowPassword(false)}
-                  onTouchStart={() => setShowPassword(true)}
-                  onTouchEnd={() => setShowPassword(false)}
-                  edge="end"
-                >
-                  {showPassword ? <Visibility /> : <VisibilityOff />}
-                </IconButton>
-              </InputAdornment>
-            )
-          }}
-        />
-        {error ? <Typography color="error">{error}</Typography> : null}
-        <Button type="submit" variant="contained" disabled={submitting}>
-          {t('auth.login')}
-        </Button>
-      </Box>
       {!user ? (
-        <Typography sx={{ mt: 2, fontSize: embedded ? '0.95rem' : '1rem' }}>
-          Noch kein Konto? Dann registriere dich{' '}
-          <Link component={RouterLink} to="/anmeldung/signup" underline="hover">
-            hier
-          </Link>
-          .
-        </Typography>
+        <>
+          <Box component="form" onSubmit={handleSubmit} sx={{ display: 'grid', gap: 2 }}>
+            <TextField
+              label={t('auth.email')}
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required
+              fullWidth
+            />
+            <TextField
+              label={t('auth.password')}
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+              fullWidth
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      aria-label="Passwort anzeigen"
+                      onMouseDown={() => setShowPassword(true)}
+                      onMouseUp={() => setShowPassword(false)}
+                      onMouseLeave={() => setShowPassword(false)}
+                      onTouchStart={() => setShowPassword(true)}
+                      onTouchEnd={() => setShowPassword(false)}
+                      edge="end"
+                    >
+                      {showPassword ? <Visibility /> : <VisibilityOff />}
+                    </IconButton>
+                  </InputAdornment>
+                )
+              }}
+            />
+            {error ? <Typography color="error">{error}</Typography> : null}
+            <Button type="submit" variant="contained" disabled={submitting}>
+              {t('auth.login')}
+            </Button>
+          </Box>
+          <Typography sx={{ mt: 2, fontSize: embedded ? '0.95rem' : '1rem' }}>
+            Noch kein Konto? Dann registriere dich{' '}
+            <Link component={RouterLink} to="/anmeldung/signup" underline="hover">
+              hier
+            </Link>
+            .
+          </Typography>
+        </>
       ) : null}
     </Box>
   );

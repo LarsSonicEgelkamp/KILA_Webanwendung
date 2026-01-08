@@ -1,22 +1,108 @@
 import React from 'react';
-import { Box, Button, Typography } from '@mui/material';
+import {
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  TextField,
+  Typography,
+  useTheme
+} from '@mui/material';
+import EditIcon from '@mui/icons-material/Edit';
 import { useTranslation } from 'react-i18next';
+import { useLocation } from 'react-router-dom';
 import Login from './Login';
 import SignUp from './SignUp';
 import kilaMinimalLogo from '../assets/img/KILA_Minimalistisch.png';
 import craneGif from '../assets/gif/crane.gif';
 import { useSection } from '../state/SectionContext';
 import { useAuth } from '../auth/AuthContext';
-import ContentBlocks from '../components/ContentBlocks';
+import SectionPanel from '../components/SectionPanel';
+import { createContentBlock, listContentBlocks, updateContentBlock } from '../lib/contentBlocks';
 
 const Home: React.FC = () => {
   const { t } = useTranslation();
+  const location = useLocation();
   const { activeSection } = useSection();
   const { user } = useAuth();
+  const theme = useTheme();
   const [showScrollHint, setShowScrollHint] = React.useState(true);
-  const [editingSections, setEditingSections] = React.useState<Record<string, boolean>>({});
+  const [releaseDate, setReleaseDate] = React.useState('2026-07-19');
+  const [releaseBlockId, setReleaseBlockId] = React.useState<string | null>(null);
+  const [releaseDialogOpen, setReleaseDialogOpen] = React.useState(false);
+  const [releaseSaving, setReleaseSaving] = React.useState(false);
+  const [releaseError, setReleaseError] = React.useState('');
   const showHero = activeSection === 'home';
-  const canEdit = user?.role === 'admin' || user?.role === 'leitung';
+  const showRelease = activeSection === 'home';
+  const canEditRelease = user?.role === 'admin';
+  const sectionBg = theme.palette.mode === 'dark' ? 'dark' : 'light';
+
+  React.useEffect(() => {
+    let active = true;
+    const loadRelease = async () => {
+      try {
+        const data = await listContentBlocks('home-release');
+        if (!active) {
+          return;
+        }
+        const releaseBlock = data[0];
+        if (releaseBlock?.content) {
+          setReleaseBlockId(releaseBlock.id);
+          setReleaseDate(releaseBlock.content);
+        }
+      } catch {
+        if (active) {
+          setReleaseError('Datum konnte nicht geladen werden.');
+        }
+      }
+    };
+    loadRelease();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const formattedRelease = React.useMemo(() => {
+    const date = new Date(releaseDate);
+    if (Number.isNaN(date.getTime())) {
+      return { year: '2026', label: 'Am 19. Juli 2026' };
+    }
+    const year = date.getFullYear().toString();
+    const dateLabel = new Intl.DateTimeFormat('de-DE', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    }).format(date);
+    return { year, label: `Am ${dateLabel}` };
+  }, [releaseDate]);
+
+  const handleReleaseSave = async () => {
+    setReleaseSaving(true);
+    setReleaseError('');
+    try {
+      if (releaseBlockId) {
+        await updateContentBlock(releaseBlockId, { content: releaseDate });
+      } else {
+        const created = await createContentBlock({
+          sectionId: 'home-release',
+          type: 'text',
+          content: releaseDate,
+          imageUrl: null,
+          width: 12,
+          orderIndex: 1
+        });
+        setReleaseBlockId(created.id);
+      }
+      setReleaseDialogOpen(false);
+    } catch {
+      setReleaseError('Datum konnte nicht gespeichert werden.');
+    } finally {
+      setReleaseSaving(false);
+    }
+  };
 
   React.useEffect(() => {
     const container = document.getElementById('main-scroll');
@@ -36,23 +122,89 @@ const Home: React.FC = () => {
   }, [showHero]);
 
   React.useEffect(() => {
-    const target = sessionStorage.getItem('kila_scroll_target');
+    const pathTargets: Record<string, string> = {
+      '/lager': 'home-camp',
+      '/termine': 'home-dates',
+      '/lager-aktuell': 'home-campyear-reports',
+      '/lager-aktuell/berichte': 'home-campyear-reports',
+      '/lager-aktuell/bilder': 'home-campyear-photos',
+      '/team': 'home-team-leitung',
+      '/team/leitung': 'home-team-leitung',
+      '/team/betreuer': 'home-team-betreuer',
+      '/team/kochteam': 'home-team-kochteam',
+      '/team/qualifikation': 'home-team-qualifikation',
+      '/downloads': 'home-downloads-packliste',
+      '/downloads/packliste': 'home-downloads-packliste',
+      '/downloads/einverstaendnis': 'home-downloads-consents',
+      '/downloads/elterninfos': 'home-downloads-parents',
+      '/downloads/notfall': 'home-downloads-emergency',
+      '/galerie': 'home-gallery-current',
+      '/galerie/aktuell': 'home-gallery-current',
+      '/galerie/vergangene': 'home-gallery-past',
+      '/das-lager': 'home-camp-expect',
+      '/das-lager/was-erwartet': 'home-camp-expect',
+      '/das-lager/tagesablauf': 'home-camp-schedule',
+      '/das-lager/spiele': 'home-camp-games',
+      '/das-lager/unterkunft': 'home-camp-location',
+      '/anmeldung': 'home-login',
+      '/anmeldung/login': 'home-login',
+      '/anmeldung/signup': 'home-signup'
+    };
+
+    const storedTarget = sessionStorage.getItem('kila_scroll_target');
+    const target = storedTarget || pathTargets[location.pathname];
     if (!target) {
       return;
     }
-    sessionStorage.removeItem('kila_scroll_target');
+    if (storedTarget) {
+      sessionStorage.removeItem('kila_scroll_target');
+    }
     setTimeout(() => {
       const element = document.getElementById(target);
       if (element) {
         element.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     }, 50);
-  }, []);
+  }, [location.pathname]);
+
+  React.useEffect(() => {
+    const container = document.getElementById('main-scroll');
+    if (!container) {
+      return;
+    }
+    const updateFade = () => {
+      const containerRect = container.getBoundingClientRect();
+      const viewportTop = container.scrollTop;
+      const fadeStart = viewportTop + 120;
+      const fadeEnd = viewportTop - 120;
+      const elements = Array.from(container.querySelectorAll<HTMLElement>('[data-fade]'));
+      elements.forEach((element) => {
+        const rect = element.getBoundingClientRect();
+        const elementTop = rect.top - containerRect.top + container.scrollTop;
+        let opacity = 1;
+        if (elementTop < fadeStart) {
+          opacity = Math.max(0, Math.min(1, (elementTop - fadeEnd) / (fadeStart - fadeEnd)));
+        }
+        element.style.setProperty('--fade-opacity', opacity.toFixed(3));
+      });
+    };
+    updateFade();
+    container.addEventListener('scroll', updateFade, { passive: true });
+    window.addEventListener('resize', updateFade);
+    return () => {
+      container.removeEventListener('scroll', updateFade);
+      window.removeEventListener('resize', updateFade);
+    };
+  }, [showHero, showRelease]);
 
   const sectionGroups = {
     home: [
-      { id: 'home-camp', titleKey: 'menu.home.camp', bodyKey: 'home.sections.camp.body' },
-      { id: 'home-dates', titleKey: 'menu.home.dates', bodyKey: 'home.sections.dates.body' }
+      { id: 'home-camp', titleKey: 'menu.home.camp', bodyKey: undefined },
+      { id: 'home-dates', titleKey: 'menu.home.dates', bodyKey: undefined }
+    ],
+    campYear: [
+      { id: 'home-campyear-reports', titleKey: 'menu.campYear.reports', bodyKey: undefined },
+      { id: 'home-campyear-photos', titleKey: 'menu.campYear.photos', bodyKey: undefined }
     ],
     team: [
       { id: 'home-team-leitung', titleKey: 'menu.team.leadership', bodyKey: undefined },
@@ -83,16 +235,12 @@ const Home: React.FC = () => {
       ? []
       : sectionGroups[activeSection as keyof typeof sectionGroups] ?? sectionGroups.home;
 
-  const toggleEditing = (sectionId: string) => {
-    setEditingSections((prev) => ({ ...prev, [sectionId]: !prev[sectionId] }));
-  };
-
   return (
     <Box>
       {showHero ? (
         <Box
           sx={{
-            minHeight: '100vh',
+            minHeight: '100dvh',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -104,6 +252,13 @@ const Home: React.FC = () => {
           data-bg="blue"
         >
           <Box sx={{ textAlign: 'center', maxWidth: 680 }}>
+            <Box
+              data-fade
+              sx={{
+                opacity: 'var(--fade-opacity, 1)',
+                transition: 'opacity 220ms ease'
+              }}
+            >
             <Box
               component="img"
               src={kilaMinimalLogo}
@@ -123,6 +278,7 @@ const Home: React.FC = () => {
             >
               {t('home.welcomeMessage')}
             </Typography>
+            </Box>
           </Box>
 
           <Box
@@ -182,73 +338,88 @@ const Home: React.FC = () => {
         </Box>
       ) : null}
 
+      {showRelease ? (
+        <Box
+          sx={{
+            bgcolor: '#0f1017',
+            color: '#ffffff',
+            py: { xs: 8, md: 12 },
+            px: 2,
+            textAlign: 'center',
+            position: 'relative'
+          }}
+          data-bg="dark"
+        >
+          <Box
+            data-fade
+            sx={{
+              maxWidth: 900,
+              mx: 'auto',
+              opacity: 'var(--fade-opacity, 1)',
+              transition: 'opacity 220ms ease'
+            }}
+          >
+            {canEditRelease ? (
+              <IconButton
+                onClick={() => setReleaseDialogOpen(true)}
+                sx={{ position: 'absolute', top: 12, right: 12, color: '#ffffff' }}
+                aria-label="Datum bearbeiten"
+              >
+                <EditIcon />
+              </IconButton>
+            ) : null}
+            <Typography
+              sx={{
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+                fontWeight: 700,
+                fontSize: { xs: '0.95rem', md: '1.1rem' },
+                color: 'rgba(255,255,255,0.75)',
+                mb: 2
+              }}
+            >
+              KILA {formattedRelease.year}
+            </Typography>
+            <Typography
+              sx={{
+                fontFamily: '"Bebas Neue", "Arial Black", sans-serif',
+                fontWeight: 800,
+                fontSize: { xs: '2.2rem', sm: '3rem', md: '4.4rem' },
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                background: 'linear-gradient(120deg, #ff5fa2 0%, #ffb36b 100%)',
+                WebkitBackgroundClip: 'text',
+                color: 'transparent'
+              }}
+            >
+              {formattedRelease.label}
+            </Typography>
+          </Box>
+        </Box>
+      ) : null}
+
       {activeSections.map((section) => {
-        const isPlaceholder = !section.bodyKey;
         return (
           <Box
             key={section.id}
             id={section.id}
             sx={{
-              bgcolor: '#ffffff',
-              color: '#111111',
+              bgcolor: theme.palette.background.default,
+              color: theme.palette.text.primary,
               py: { xs: 6, md: 10 },
               px: 2,
               scrollMarginTop: '90px'
             }}
-            data-bg="light"
+            data-bg={sectionBg}
           >
             <Box sx={{ maxWidth: 900, mx: 'auto' }}>
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 2,
-                  flexWrap: 'wrap',
-                  mb: 2
-                }}
-              >
-                <Typography variant="h3" sx={{ color: '#0088ff', fontWeight: 700 }}>
-                  {t(section.titleKey)}
-                </Typography>
-                {canEdit ? (
-                  <Button
-                    variant={editingSections[section.id] ? 'contained' : 'outlined'}
-                    size="small"
-                    onClick={() => toggleEditing(section.id)}
-                  >
-                    {editingSections[section.id] ? 'Editor schliessen' : 'Bearbeiten'}
-                  </Button>
-                ) : null}
-              </Box>
-              {isPlaceholder ? (
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1.5,
-                    color: '#0b57d0'
-                  }}
-                >
-                  <Box
-                    component="img"
-                    src={craneGif}
-                    alt="Kran"
-                    sx={{ width: 42, height: 42, objectFit: 'contain' }}
-                  />
-                  <Typography sx={{ fontSize: { xs: '1rem', md: '1.1rem' } }}>
-                    {t('home.sections.placeholder.body')}
-                  </Typography>
-                </Box>
-              ) : (
-                <Typography sx={{ fontSize: { xs: '1rem', md: '1.1rem' } }}>
-                  {t(section.bodyKey)}
-                </Typography>
-              )}
-              <ContentBlocks
-                sectionId={section.id}
-                canEdit={canEdit}
-                editing={Boolean(editingSections[section.id])}
+              <SectionPanel
+                pageSectionId={section.id}
+                titleKey={section.titleKey}
+                bodyKey={section.bodyKey}
+                placeholderBodyKey="home.sections.placeholder.body"
+                placeholderIconSrc={craneGif}
+                showPlaceholder
               />
             </Box>
           </Box>
@@ -259,8 +430,14 @@ const Home: React.FC = () => {
         <>
           <Box
             id="home-login"
-            sx={{ bgcolor: '#ffffff', color: '#111111', py: { xs: 6, md: 10 }, px: 2, scrollMarginTop: '90px' }}
-            data-bg="light"
+            sx={{
+              bgcolor: theme.palette.background.default,
+              color: theme.palette.text.primary,
+              py: { xs: 6, md: 10 },
+              px: 2,
+              scrollMarginTop: '90px'
+            }}
+            data-bg={sectionBg}
           >
             <Box sx={{ maxWidth: 900, mx: 'auto' }}>
               <Typography variant="h3" sx={{ color: '#0088ff', fontWeight: 700, mb: 2 }}>
@@ -272,8 +449,14 @@ const Home: React.FC = () => {
 
           <Box
             id="home-signup"
-            sx={{ bgcolor: '#ffffff', color: '#111111', py: { xs: 6, md: 10 }, px: 2, scrollMarginTop: '90px' }}
-            data-bg="light"
+            sx={{
+              bgcolor: theme.palette.background.default,
+              color: theme.palette.text.primary,
+              py: { xs: 6, md: 10 },
+              px: 2,
+              scrollMarginTop: '90px'
+            }}
+            data-bg={sectionBg}
           >
             <Box sx={{ maxWidth: 900, mx: 'auto' }}>
               <Typography variant="h3" sx={{ color: '#0088ff', fontWeight: 700, mb: 2 }}>
@@ -284,6 +467,33 @@ const Home: React.FC = () => {
           </Box>
         </>
       ) : null}
+
+      <Dialog open={releaseDialogOpen} onClose={() => setReleaseDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Datum bearbeiten</DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          <TextField
+            label="Datum"
+            type="date"
+            value={releaseDate}
+            onChange={(event) => setReleaseDate(event.target.value)}
+            fullWidth
+            InputLabelProps={{ shrink: true }}
+          />
+          {releaseError ? (
+            <Typography color="error" sx={{ mt: 2 }}>
+              {releaseError}
+            </Typography>
+          ) : null}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setReleaseDialogOpen(false)} disabled={releaseSaving}>
+            Abbrechen
+          </Button>
+          <Button variant="contained" onClick={handleReleaseSave} disabled={releaseSaving}>
+            Speichern
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
