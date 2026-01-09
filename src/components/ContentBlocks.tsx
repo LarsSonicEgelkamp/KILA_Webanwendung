@@ -317,6 +317,7 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
   const [viewerIndex, setViewerIndex] = React.useState(0);
   const gridRef = React.useRef<HTMLDivElement | null>(null);
   const galleryInputRef = React.useRef<HTMLInputElement | null>(null);
+  const viewerTouchStartRef = React.useRef<{ x: number; y: number } | null>(null);
   const blocksRef = React.useRef<ContentBlock[]>([]);
   const lastCommitSignal = React.useRef<number | undefined>(undefined);
   const theme = useTheme();
@@ -476,6 +477,36 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
       }
       return (prev + 1) % viewerImages.length;
     });
+  };
+
+  const handleViewerTouchStart = (event: React.TouchEvent) => {
+    const touch = event.touches[0];
+    if (!touch) {
+      return;
+    }
+    viewerTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  };
+
+  const handleViewerTouchEnd = (event: React.TouchEvent) => {
+    if (!viewerTouchStartRef.current || viewerImages.length < 2) {
+      viewerTouchStartRef.current = null;
+      return;
+    }
+    const touch = event.changedTouches[0];
+    if (!touch) {
+      viewerTouchStartRef.current = null;
+      return;
+    }
+    const deltaX = touch.clientX - viewerTouchStartRef.current.x;
+    const deltaY = touch.clientY - viewerTouchStartRef.current.y;
+    viewerTouchStartRef.current = null;
+    if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)) {
+      if (deltaX < 0) {
+        handleViewerNext();
+      } else {
+        handleViewerPrev();
+      }
+    }
   };
 
   const persistOrder = async (nextBlocks: ContentBlock[], originalMap: Map<string, number>) => {
@@ -1917,8 +1948,11 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
               minHeight: { xs: '60vh', md: '70vh' },
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
+              touchAction: 'pan-y'
             }}
+            onTouchStart={handleViewerTouchStart}
+            onTouchEnd={handleViewerTouchEnd}
           >
             {viewerImages.length > 0 ? (
               <Box

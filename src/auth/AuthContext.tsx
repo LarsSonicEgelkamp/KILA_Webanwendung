@@ -199,7 +199,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
-    await supabase.auth.signOut();
+    const authClient = supabase.auth as unknown as { _removeSession?: () => Promise<void> };
+    if (authClient._removeSession) {
+      await authClient._removeSession();
+      return;
+    }
+    await supabase.auth.signOut({ scope: 'local' });
   };
 
   const updateRole = async (id: string, role: Role): Promise<AuthResult> => {
