@@ -280,7 +280,7 @@ const Home: React.FC = () => {
   const sectionGroups: Record<string, SectionConfig[]> = {
     home: [
       { id: 'home-camp', titleKey: 'menu.home.camp', bodyKey: undefined },
-      { id: 'home-dates', titleKey: 'menu.home.dates', bodyKey: undefined }
+      { id: 'home-dates', titleKey: 'menu.home.dates', bodyKey: undefined, allowedBlockTypes: ['event'] }
     ],
     campYear: [
       { id: 'home-campyear-reports', titleKey: 'menu.campYear.reports', bodyKey: undefined },

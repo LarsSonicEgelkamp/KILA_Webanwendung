@@ -1,6 +1,6 @@
 import { supabase } from './supabaseClient';
 
-export type BlockType = 'heading' | 'text' | 'image' | 'link' | 'file' | 'gallery';
+export type BlockType = 'heading' | 'text' | 'image' | 'link' | 'file' | 'gallery' | 'event';
 
 export type ContentBlock = {
   id: string;

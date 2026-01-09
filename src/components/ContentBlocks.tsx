@@ -2,8 +2,10 @@ import React from 'react';
 import {
   Box,
   Button,
+  Checkbox,
   Dialog,
   DialogContent,
+  FormControlLabel,
   IconButton,
   Menu,
   MenuItem,
@@ -24,6 +26,11 @@ import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import CloseIcon from '@mui/icons-material/Close';
+import EventIcon from '@mui/icons-material/Event';
+import dayjs from 'dayjs';
+import 'dayjs/locale/de';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import ImageCropDialog from './ImageCropDialog';
@@ -75,6 +82,193 @@ const parseGalleryContent = (value?: string | null): string[] => {
 };
 
 const serializeGalleryContent = (images: string[]): string => JSON.stringify(images);
+
+type EventContent = {
+  title: string;
+  date: string;
+  time: string;
+  endDate: string;
+  endTime: string;
+  useTime: boolean;
+  useEndDate: boolean;
+};
+
+const parseEventContent = (value?: string | null): EventContent => {
+  if (!value) {
+    return {
+      title: '',
+      date: '',
+      time: '',
+      endDate: '',
+      endTime: '',
+      useTime: false,
+      useEndDate: false
+    };
+  }
+  try {
+    const parsed = JSON.parse(value) as Partial<EventContent> | null;
+    if (parsed && typeof parsed === 'object') {
+      const parsedTime = typeof parsed.time === 'string' ? parsed.time : '';
+      const parsedEndDate = typeof parsed.endDate === 'string' ? parsed.endDate : '';
+      return {
+        title: typeof parsed.title === 'string' ? parsed.title : '',
+        date: typeof parsed.date === 'string' ? parsed.date : '',
+        time: parsedTime,
+        endDate: parsedEndDate,
+        endTime: typeof parsed.endTime === 'string' ? parsed.endTime : '',
+        useTime: typeof parsed.useTime === 'boolean' ? parsed.useTime : Boolean(parsedTime),
+        useEndDate: typeof parsed.useEndDate === 'boolean' ? parsed.useEndDate : Boolean(parsedEndDate)
+      };
+    }
+  } catch {
+    return {
+      title: value,
+      date: '',
+      time: '',
+      endDate: '',
+      endTime: '',
+      useTime: false,
+      useEndDate: false
+    };
+  }
+  return {
+    title: '',
+    date: '',
+    time: '',
+    endDate: '',
+    endTime: '',
+    useTime: false,
+    useEndDate: false
+  };
+};
+
+const serializeEventContent = (event: EventContent): string => JSON.stringify(event);
+
+const getLocalDateValue = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = `${now.getMonth() + 1}`.padStart(2, '0');
+  const day = `${now.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatIcsDate = (date: Date) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}${month}${day}`;
+};
+
+const formatIcsDateTime = (date: Date) => {
+  const datePart = formatIcsDate(date);
+  const hours = `${date.getHours()}`.padStart(2, '0');
+  const minutes = `${date.getMinutes()}`.padStart(2, '0');
+  return `${datePart}T${hours}${minutes}00`;
+};
+
+const buildEventIcs = (event: EventContent, uid: string) => {
+  if (!event.date) {
+    return '';
+  }
+  const title = event.title.trim() || 'Termin';
+  const dtstamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  const [year, month, day] = event.date.split('-').map((value) => Number(value));
+  if (!year || !month || !day) {
+    return '';
+  }
+  const hasTime = event.useTime && Boolean(event.time);
+  const hasEndDate = event.useEndDate && Boolean(event.endDate);
+  const hasEndTime = hasTime && Boolean(event.endTime);
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//KILA//Termine//DE', 'CALSCALE:GREGORIAN', 'BEGIN:VEVENT'];
+  lines.push(`UID:${uid}`);
+  lines.push(`DTSTAMP:${dtstamp}`);
+  lines.push(`SUMMARY:${title}`);
+  if (hasTime) {
+    const [hour, minute] = event.time.split(':').map((value) => Number(value));
+    const start = new Date(year, month - 1, day, hour || 0, minute || 0, 0);
+    let end: Date;
+    if (hasEndDate || hasEndTime) {
+      const endDateValue = hasEndDate ? event.endDate : event.date;
+      const [endYear, endMonth, endDay] = endDateValue.split('-').map((value) => Number(value));
+      const endTimeValue = hasEndTime ? event.endTime : event.time;
+      const [endHour, endMinute] = endTimeValue.split(':').map((value) => Number(value));
+      end = new Date(endYear, (endMonth || month) - 1, endDay || day, endHour || 0, endMinute || 0, 0);
+      if (end.getTime() <= start.getTime()) {
+        end = new Date(start.getTime() + 60 * 60 * 1000);
+      }
+    } else {
+      end = new Date(start.getTime() + 60 * 60 * 1000);
+    }
+    lines.push(`DTSTART:${formatIcsDateTime(start)}`);
+    lines.push(`DTEND:${formatIcsDateTime(end)}`);
+  } else {
+    const start = new Date(year, month - 1, day, 0, 0, 0);
+    const endDateValue = hasEndDate ? event.endDate : event.date;
+    const [endYear, endMonth, endDay] = endDateValue.split('-').map((value) => Number(value));
+    const end = new Date(endYear || year, (endMonth || month) - 1, endDay || day, 0, 0, 0);
+    end.setDate(end.getDate() + 1);
+    if (end.getTime() <= start.getTime()) {
+      end.setTime(start.getTime());
+      end.setDate(end.getDate() + 1);
+    }
+    lines.push(`DTSTART;VALUE=DATE:${formatIcsDate(start)}`);
+    lines.push(`DTEND;VALUE=DATE:${formatIcsDate(end)}`);
+  }
+  lines.push('END:VEVENT', 'END:VCALENDAR');
+  return lines.join('\r\n');
+};
+
+const formatEventDate = (event: EventContent) => {
+  if (!event.date) {
+    return 'Datum offen';
+  }
+  const startDate = new Date(`${event.date}T00:00:00`);
+  if (Number.isNaN(startDate.getTime())) {
+    return event.date;
+  }
+  let endDateValue = event.useEndDate ? event.endDate : '';
+  if (endDateValue) {
+    const endDateCheck = new Date(`${endDateValue}T00:00:00`);
+    if (Number.isNaN(endDateCheck.getTime()) || endDateCheck.getTime() < startDate.getTime()) {
+      endDateValue = '';
+    }
+  }
+  const dateLabel = new Intl.DateTimeFormat('de-DE', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  }).format(startDate);
+  if (event.useTime && event.time) {
+    const endTimeValue = event.endTime;
+    if (endDateValue === event.date && endTimeValue) {
+      const [startHour, startMinute] = event.time.split(':').map((value) => Number(value));
+      const [endHour, endMinute] = endTimeValue.split(':').map((value) => Number(value));
+      if (endHour > startHour || (endHour === startHour && endMinute > startMinute)) {
+        return `${dateLabel} ${event.time} Uhr - ${endTimeValue} Uhr`;
+      }
+    }
+    if (endDateValue || (event.useTime && endTimeValue)) {
+      const endDateLabel = endDateValue
+        ? new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'long', year: 'numeric' }).format(
+            new Date(`${endDateValue}T00:00:00`)
+          )
+        : dateLabel;
+      const endLabel = endTimeValue ? `${endDateLabel} ${endTimeValue} Uhr` : `${endDateLabel} ${event.time} Uhr`;
+      return `${dateLabel} ${event.time} Uhr - ${endLabel}`;
+    }
+    return `${dateLabel} ${event.time} Uhr`;
+  }
+  if (endDateValue && endDateValue !== event.date) {
+    const endDate = new Date(`${endDateValue}T00:00:00`);
+    const endDateLabel = Number.isNaN(endDate.getTime()) ? endDateValue : new Intl.DateTimeFormat('de-DE', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    }).format(endDate);
+    return `${dateLabel} - ${endDateLabel}`;
+  }
+  return dateLabel;
+};
 
 const ContentBlocks: React.FC<ContentBlocksProps> = ({
   contentSectionId,
@@ -196,6 +390,16 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
     }
     if (block.type === 'gallery') {
       return parseGalleryContent(block.content).length === 0;
+    }
+    if (block.type === 'event') {
+      const eventData = parseEventContent(block.content);
+      return (
+        !eventData.title.trim() &&
+        !eventData.date.trim() &&
+        !eventData.time.trim() &&
+        !eventData.endDate.trim() &&
+        !eventData.endTime.trim()
+      );
     }
     if (block.type === 'link' || block.type === 'file') {
       const label = (block.content ?? '').trim();
@@ -357,6 +561,56 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
     }
   };
 
+  const createEventBlockAt = async (insertIndex: number, preferredWidth?: number) => {
+    const content = serializeEventContent({
+      title: '',
+      date: getLocalDateValue(),
+      time: '',
+      endDate: '',
+      endTime: '',
+      useTime: false,
+      useEndDate: false
+    });
+    const width = clampWidth(preferredWidth ?? 12);
+    if (editing) {
+      const newBlock: ContentBlock = {
+        id: `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        sectionId: contentSectionId,
+        type: 'event',
+        content,
+        imageUrl: null,
+        width,
+        orderIndex: insertIndex + 1
+      };
+      updateDraftBlocks((prev) => {
+        const nextBlocks = [...prev];
+        nextBlocks.splice(insertIndex, 0, newBlock);
+        return nextBlocks.map((block, index) => ({ ...block, orderIndex: index + 1 }));
+      });
+      return;
+    }
+    try {
+      const beforeBlocks = blocks;
+      const newBlock = await createContentBlock({
+        sectionId: contentSectionId,
+        type: 'event',
+        content,
+        imageUrl: null,
+        width,
+        orderIndex: insertIndex + 1
+      });
+      const nextBlocks = [...blocks];
+      nextBlocks.splice(insertIndex, 0, newBlock);
+      const originalMap = new Map(blocks.map((block) => [block.id, block.orderIndex]));
+      originalMap.set(newBlock.id, newBlock.orderIndex);
+      const ordered = await persistOrder(nextBlocks, originalMap);
+      setBlocks(ordered);
+      recordHistory(beforeBlocks, ordered);
+    } catch {
+      setError('Termin konnte nicht angelegt werden.');
+    }
+  };
+
   const handleGalleryRemove = (blockId: string, index: number, images: string[]) => {
     const nextImages = images.filter((_, itemIndex) => itemIndex !== index);
     updateGalleryImages(blockId, nextImages);
@@ -419,6 +673,10 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
       });
       return;
     }
+    if (type === 'event') {
+      await createEventBlockAt(menuContext.insertIndex, menuContext.preferredWidth);
+      return;
+    }
     if (type === 'image') {
       setReplaceTargetId(null);
       setPendingInsertIndex(menuContext.insertIndex);
@@ -458,6 +716,37 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
       setGalleryUploadContext(null);
       event.target.value = '';
     }
+  };
+
+  const updateEventContent = (blockId: string, nextEvent: EventContent) => {
+    const content = serializeEventContent(nextEvent);
+    if (editing) {
+      updateDraftBlocks((prev) =>
+        prev.map((block) => (block.id === blockId ? { ...block, content } : block))
+      );
+      return;
+    }
+    setBlocks((prev) => prev.map((block) => (block.id === blockId ? { ...block, content } : block)));
+  };
+
+  const handleEventDownload = (event: EventContent, blockId: string) => {
+    const icsContent = buildEventIcs(event, blockId);
+    if (!icsContent) {
+      return;
+    }
+    const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    const safeTitle = (event.title || 'termin')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)+/g, '');
+    anchor.download = `${safeTitle || 'termin'}.ics`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
   };
 
   const handleCroppedImage = async (file: File) => {
@@ -1123,6 +1412,157 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
               )
             ) : null}
 
+            {block.type === 'event' ? (() => {
+              const eventData = parseEventContent(block.content);
+              return (
+                <Box sx={{ display: 'grid', gap: 1.5 }}>
+                  {editing ? (
+                    <>
+                      <TextField
+                        label="Titel"
+                        value={eventData.title}
+                        onChange={(event) =>
+                          updateEventContent(block.id, { ...eventData, title: event.target.value })
+                        }
+                        size="small"
+                        fullWidth
+                      />
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              checked={eventData.useTime}
+                              onChange={(event) =>
+                                updateEventContent(block.id, {
+                                  ...eventData,
+                                  useTime: event.target.checked,
+                                  time: event.target.checked ? eventData.time : '',
+                                  endTime: event.target.checked ? eventData.endTime : ''
+                                })
+                              }
+                              disabled={!eventData.date}
+                            />
+                          }
+                          label="Uhrzeit anzeigen"
+                        />
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              checked={eventData.useEndDate}
+                              onChange={(event) =>
+                                updateEventContent(block.id, {
+                                  ...eventData,
+                                  useEndDate: event.target.checked,
+                                  endDate: event.target.checked ? (eventData.endDate || eventData.date) : ''
+                                })
+                              }
+                              disabled={!eventData.date}
+                            />
+                          }
+                          label="Enddatum anzeigen"
+                        />
+                      </Box>
+                      <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="de">
+                        <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' } }}>
+                          <DatePicker
+                            label="Datum"
+                            value={eventData.date ? dayjs(eventData.date) : null}
+                            onChange={(value) => {
+                              const nextDate = value ? value.format('YYYY-MM-DD') : '';
+                              const shouldClearEndDate =
+                                !nextDate ||
+                                (eventData.endDate &&
+                                  dayjs(eventData.endDate).isBefore(dayjs(nextDate), 'day'));
+                              updateEventContent(block.id, {
+                                ...eventData,
+                                date: nextDate,
+                                useTime: nextDate ? eventData.useTime : false,
+                                useEndDate: nextDate ? eventData.useEndDate : false,
+                                time: nextDate ? eventData.time : '',
+                                endDate: shouldClearEndDate ? '' : eventData.endDate,
+                                endTime: nextDate ? eventData.endTime : ''
+                              });
+                            }}
+                            slotProps={{ textField: { size: 'small' } }}
+                          />
+                          {eventData.useTime ? (
+                            <TextField
+                              label="Uhrzeit (optional)"
+                              type="time"
+                              value={eventData.time}
+                              onChange={(event) =>
+                                updateEventContent(block.id, { ...eventData, time: event.target.value })
+                              }
+                              size="small"
+                              InputLabelProps={{ shrink: true }}
+                              disabled={!eventData.date}
+                            />
+                          ) : null}
+                          {eventData.useEndDate ? (
+                            <DatePicker
+                              label="Enddatum (optional)"
+                              value={eventData.endDate ? dayjs(eventData.endDate) : null}
+                              onChange={(value) =>
+                                updateEventContent(block.id, {
+                                  ...eventData,
+                                  endDate: value ? value.format('YYYY-MM-DD') : ''
+                                })
+                              }
+                              minDate={eventData.date ? dayjs(eventData.date) : undefined}
+                              slotProps={{ textField: { size: 'small' } }}
+                            />
+                          ) : null}
+                          {eventData.useTime ? (
+                            <TextField
+                              label="Endzeit (optional)"
+                              type="time"
+                              value={eventData.endTime}
+                              onChange={(event) =>
+                                updateEventContent(block.id, { ...eventData, endTime: event.target.value })
+                              }
+                              size="small"
+                              InputLabelProps={{ shrink: true }}
+                              disabled={!eventData.time || !eventData.date}
+                            />
+                          ) : null}
+                        </Box>
+                      </LocalizationProvider>
+                    </>
+                  ) : (
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 2,
+                        flexWrap: 'wrap',
+                        borderRadius: 2,
+                        border: '1px solid rgba(0,0,0,0.08)',
+                        p: 2
+                      }}
+                    >
+                      <Box sx={{ minWidth: 200 }}>
+                        <Typography sx={{ fontWeight: 700 }}>
+                          {eventData.title || 'Termin'}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {formatEventDate(eventData)}
+                        </Typography>
+                      </Box>
+                      <Button
+                        variant="contained"
+                        size="small"
+                        onClick={() => handleEventDownload(eventData, block.id)}
+                        disabled={!eventData.date}
+                      >
+                        ICS herunterladen
+                      </Button>
+                    </Box>
+                  )}
+                </Box>
+              );
+            })() : null}
+
             {block.type === 'file' ? (
               editing ? (
                 <Box sx={{ display: 'grid', gap: 1 }}>
@@ -1439,6 +1879,11 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
         {!menuContext.allowedTypes || menuContext.allowedTypes.includes('image') ? (
           <MenuItem onClick={() => handleCreateBlock('image')}>
             <ImageIcon sx={{ mr: 1 }} /> Bild hochladen
+          </MenuItem>
+        ) : null}
+        {!menuContext.allowedTypes || menuContext.allowedTypes.includes('event') ? (
+          <MenuItem onClick={() => handleCreateBlock('event')}>
+            <EventIcon sx={{ mr: 1 }} /> Termin hinzufuegen
           </MenuItem>
         ) : null}
         {!menuContext.allowedTypes || menuContext.allowedTypes.includes('gallery') ? (
