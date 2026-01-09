@@ -2,6 +2,8 @@ import React from 'react';
 import {
   Box,
   Button,
+  Dialog,
+  DialogContent,
   IconButton,
   Menu,
   MenuItem,
@@ -13,11 +15,15 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ImageIcon from '@mui/icons-material/Image';
+import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
 import LinkIcon from '@mui/icons-material/Link';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
 import TextFieldsIcon from '@mui/icons-material/TextFields';
 import TitleIcon from '@mui/icons-material/Title';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import CloseIcon from '@mui/icons-material/Close';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import ImageCropDialog from './ImageCropDialog';
@@ -52,6 +58,23 @@ type ResizeState = {
 };
 
 const clampWidth = (value: number) => Math.min(12, Math.max(3, value));
+
+const parseGalleryContent = (value?: string | null): string[] => {
+  if (!value) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((item) => typeof item === 'string' && item.trim().length > 0);
+    }
+  } catch {
+    // Ignore malformed gallery payloads.
+  }
+  return [];
+};
+
+const serializeGalleryContent = (images: string[]): string => JSON.stringify(images);
 
 const ContentBlocks: React.FC<ContentBlocksProps> = ({
   contentSectionId,
@@ -89,7 +112,17 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
   const [draftBlocks, setDraftBlocks] = React.useState<ContentBlock[]>([]);
   const [draftDirty, setDraftDirty] = React.useState(false);
   const [commitInFlight, setCommitInFlight] = React.useState(false);
+  const [galleryUploadContext, setGalleryUploadContext] = React.useState<{
+    mode: 'new' | 'append';
+    insertIndex?: number;
+    preferredWidth?: number;
+    targetId?: string;
+  } | null>(null);
+  const [viewerOpen, setViewerOpen] = React.useState(false);
+  const [viewerImages, setViewerImages] = React.useState<string[]>([]);
+  const [viewerIndex, setViewerIndex] = React.useState(0);
   const gridRef = React.useRef<HTMLDivElement | null>(null);
+  const galleryInputRef = React.useRef<HTMLInputElement | null>(null);
   const blocksRef = React.useRef<ContentBlock[]>([]);
   const lastCommitSignal = React.useRef<number | undefined>(undefined);
   const theme = useTheme();
@@ -161,6 +194,9 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
     if (block.type === 'image') {
       return !block.imageUrl;
     }
+    if (block.type === 'gallery') {
+      return parseGalleryContent(block.content).length === 0;
+    }
     if (block.type === 'link' || block.type === 'file') {
       const label = (block.content ?? '').trim();
       const url = (block.imageUrl ?? '').trim();
@@ -172,7 +208,6 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
       .trim();
     return content.length === 0;
   };
-
 
   const openMenu = (
     event: React.MouseEvent<HTMLElement>,
@@ -193,7 +228,49 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
       anchorEl: null,
       insertIndex: displayBlocks.length,
       preferredWidth: undefined,
-      allowedTypes: undefined
+      allowedTypes: menuContext.allowedTypes ?? baseAllowedTypes
+    });
+  };
+
+  const openGalleryPicker = (context: {
+    mode: 'new' | 'append';
+    insertIndex?: number;
+    preferredWidth?: number;
+    targetId?: string;
+  }) => {
+    setGalleryUploadContext(context);
+    window.requestAnimationFrame(() => {
+      galleryInputRef.current?.click();
+    });
+  };
+
+  const openViewer = (images: string[], index: number) => {
+    setViewerImages(images);
+    setViewerIndex(index);
+    setViewerOpen(true);
+  };
+
+  const closeViewer = () => {
+    setViewerOpen(false);
+    setViewerImages([]);
+    setViewerIndex(0);
+  };
+
+  const handleViewerPrev = () => {
+    setViewerIndex((prev) => {
+      if (viewerImages.length === 0) {
+        return prev;
+      }
+      return (prev - 1 + viewerImages.length) % viewerImages.length;
+    });
+  };
+
+  const handleViewerNext = () => {
+    setViewerIndex((prev) => {
+      if (viewerImages.length === 0) {
+        return prev;
+      }
+      return (prev + 1) % viewerImages.length;
     });
   };
 
@@ -213,6 +290,76 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
       setError('Reihenfolge konnte nicht gespeichert werden.');
       return normalized;
     }
+  };
+
+  const updateGalleryImages = async (blockId: string, nextImages: string[]) => {
+    const nextContent = serializeGalleryContent(nextImages);
+    if (editing) {
+      updateDraftBlocks((prev) =>
+        prev.map((block) => (block.id === blockId ? { ...block, content: nextContent } : block))
+      );
+      return;
+    }
+    try {
+      const beforeBlocks = blocks;
+      const updated = await updateContentBlock(blockId, { content: nextContent });
+      const nextBlocks = blocks.map((block) => (block.id === updated.id ? updated : block));
+      setBlocks(nextBlocks);
+      recordHistory(beforeBlocks, nextBlocks);
+    } catch {
+      setError('Galerie konnte nicht aktualisiert werden.');
+    }
+  };
+
+  const createGalleryBlockAt = async (
+    insertIndex: number,
+    images: string[],
+    preferredWidth?: number
+  ) => {
+    const content = serializeGalleryContent(images);
+    const width = clampWidth(preferredWidth ?? 12);
+    if (editing) {
+      const newBlock: ContentBlock = {
+        id: `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        sectionId: contentSectionId,
+        type: 'gallery',
+        content,
+        imageUrl: null,
+        width,
+        orderIndex: insertIndex + 1
+      };
+      updateDraftBlocks((prev) => {
+        const nextBlocks = [...prev];
+        nextBlocks.splice(insertIndex, 0, newBlock);
+        return nextBlocks.map((block, index) => ({ ...block, orderIndex: index + 1 }));
+      });
+      return;
+    }
+    try {
+      const beforeBlocks = blocks;
+      const newBlock = await createContentBlock({
+        sectionId: contentSectionId,
+        type: 'gallery',
+        content,
+        imageUrl: null,
+        width,
+        orderIndex: insertIndex + 1
+      });
+      const nextBlocks = [...blocks];
+      nextBlocks.splice(insertIndex, 0, newBlock);
+      const originalMap = new Map(blocks.map((block) => [block.id, block.orderIndex]));
+      originalMap.set(newBlock.id, newBlock.orderIndex);
+      const ordered = await persistOrder(nextBlocks, originalMap);
+      setBlocks(ordered);
+      recordHistory(beforeBlocks, ordered);
+    } catch {
+      setError('Konnte Galerie nicht anlegen.');
+    }
+  };
+
+  const handleGalleryRemove = (blockId: string, index: number, images: string[]) => {
+    const nextImages = images.filter((_, itemIndex) => itemIndex !== index);
+    updateGalleryImages(blockId, nextImages);
   };
 
   const insertBlockAt = async (
@@ -264,6 +411,14 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
 
   const handleCreateBlock = async (type: BlockType) => {
     closeMenu();
+    if (type === 'gallery') {
+      openGalleryPicker({
+        mode: 'new',
+        insertIndex: menuContext.insertIndex,
+        preferredWidth: menuContext.preferredWidth
+      });
+      return;
+    }
     if (type === 'image') {
       setReplaceTargetId(null);
       setPendingInsertIndex(menuContext.insertIndex);
@@ -272,6 +427,37 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
       return;
     }
     await insertBlockAt(type, menuContext.insertIndex, undefined, menuContext.preferredWidth);
+  };
+
+  const handleGalleryFilesSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    if (files.length === 0) {
+      setGalleryUploadContext(null);
+      return;
+    }
+    setUploading(true);
+    setError('');
+    try {
+      const uploadedUrls: string[] = [];
+      for (const file of files) {
+        const url = await uploadContentImage(contentSectionId, file);
+        uploadedUrls.push(url);
+      }
+      if (galleryUploadContext?.mode === 'append' && galleryUploadContext.targetId) {
+        const targetBlock = displayBlocks.find((block) => block.id === galleryUploadContext.targetId);
+        const existingImages = targetBlock ? parseGalleryContent(targetBlock.content) : [];
+        await updateGalleryImages(galleryUploadContext.targetId, [...existingImages, ...uploadedUrls]);
+      } else {
+        const insertIndex = galleryUploadContext?.insertIndex ?? displayBlocks.length;
+        await createGalleryBlockAt(insertIndex, uploadedUrls, galleryUploadContext?.preferredWidth);
+      }
+    } catch {
+      setError('Bilder konnten nicht hochgeladen werden.');
+    } finally {
+      setUploading(false);
+      setGalleryUploadContext(null);
+      event.target.value = '';
+    }
   };
 
   const handleCroppedImage = async (file: File) => {
@@ -621,6 +807,9 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
         if (block.imageUrl) {
           removeUrls.add(block.imageUrl);
         }
+        if (block.type === 'gallery') {
+          parseGalleryContent(block.content).forEach((url) => removeUrls.add(url));
+        }
       });
 
       for (const block of normalizedDraft) {
@@ -648,6 +837,13 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
         }> = {};
         if ((original.content ?? '') !== (block.content ?? '')) {
           updates.content = block.content ?? null;
+          if (block.type === 'gallery') {
+            const previousImages = parseGalleryContent(original.content);
+            const nextImages = parseGalleryContent(block.content);
+            previousImages
+              .filter((url) => !nextImages.includes(url))
+              .forEach((url) => removeUrls.add(url));
+          }
         }
         if ((original.imageUrl ?? '') !== (block.imageUrl ?? '')) {
           updates.imageUrl = block.imageUrl ?? null;
@@ -764,7 +960,7 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
               rowHasImage = false;
             }
             rowWidth += current.width;
-            rowHasImage = rowHasImage || current.type === 'image';
+            rowHasImage = rowHasImage || current.type === 'image' || current.type === 'gallery';
           }
           const nextBlock = displayBlocks[index + 1];
           const isRowEnd = !nextBlock || rowWidth + nextBlock.width > 12;
@@ -1036,6 +1232,107 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
               </Box>
             ) : null}
 
+            {block.type === 'gallery' ? (() => {
+              const galleryImages = parseGalleryContent(block.content);
+              return (
+                <Box>
+                  {galleryImages.length === 0 ? (
+                    <Box
+                      sx={{
+                        minHeight: 160,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'text.secondary',
+                        borderRadius: 2,
+                        border: editing ? '1px dashed rgba(0,0,0,0.2)' : '1px solid rgba(0,0,0,0.08)'
+                      }}
+                    >
+                      Keine Bilder in der Galerie
+                    </Box>
+                  ) : (
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(3, 1fr)', md: 'repeat(4, 1fr)' },
+                        gridAutoRows: { xs: 120, sm: 140, md: 160 },
+                        gap: 1.5,
+                        '& .gallery-item': {
+                          position: 'relative',
+                          borderRadius: 2,
+                          overflow: 'hidden',
+                          bgcolor: 'rgba(0,0,0,0.06)',
+                          cursor: editing ? 'default' : 'pointer'
+                        },
+                        '& .gallery-item:nth-of-type(6n+1)': {
+                          gridColumn: { xs: 'span 2', sm: 'span 2', md: 'span 2' },
+                          gridRow: 'span 2'
+                        },
+                        '& .gallery-item:nth-of-type(6n+4)': {
+                          gridRow: 'span 2'
+                        }
+                      }}
+                    >
+                      {galleryImages.map((url, index) => (
+                        <Box
+                          key={`${block.id}-${index}`}
+                          className="gallery-item"
+                          onClick={
+                            editing
+                              ? undefined
+                              : () => openViewer(galleryImages, index)
+                          }
+                        >
+                          <Box
+                            component="img"
+                            src={url}
+                            alt=""
+                            sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                          />
+                          {editing ? (
+                            <IconButton
+                              size="small"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleGalleryRemove(block.id, index, galleryImages);
+                              }}
+                              sx={{
+                                position: 'absolute',
+                                top: 6,
+                                right: 6,
+                                bgcolor: 'rgba(0,0,0,0.6)',
+                                color: '#fff',
+                                '&:hover': { bgcolor: 'rgba(0,0,0,0.75)' }
+                              }}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          ) : null}
+                        </Box>
+                      ))}
+                    </Box>
+                  )}
+                  {editing ? (
+                    <Box sx={{ mt: 1 }}>
+                      <Button
+                        size="small"
+                        startIcon={<PhotoLibraryIcon />}
+                        onClick={() =>
+                          openGalleryPicker({
+                            mode: 'append',
+                            targetId: block.id
+                          })
+                        }
+                        disabled={uploading}
+                      >
+                        Bilder hinzufuegen
+                      </Button>
+                    </Box>
+                  ) : null}
+                </Box>
+              );
+            })() : null}
+
                 {editing ? (
                   <Box
                     sx={{
@@ -1119,6 +1416,15 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
         </Box>
       ) : null}
 
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        onChange={handleGalleryFilesSelected}
+      />
+
       <Menu anchorEl={menuContext.anchorEl} open={Boolean(menuContext.anchorEl)} onClose={closeMenu}>
         {!menuContext.allowedTypes || menuContext.allowedTypes.includes('heading') ? (
           <MenuItem onClick={() => handleCreateBlock('heading')}>
@@ -1135,6 +1441,11 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
             <ImageIcon sx={{ mr: 1 }} /> Bild hochladen
           </MenuItem>
         ) : null}
+        {!menuContext.allowedTypes || menuContext.allowedTypes.includes('gallery') ? (
+          <MenuItem onClick={() => handleCreateBlock('gallery')}>
+            <PhotoLibraryIcon sx={{ mr: 1 }} /> Bilder hochladen
+          </MenuItem>
+        ) : null}
         {!menuContext.allowedTypes || menuContext.allowedTypes.includes('link') ? (
           <MenuItem onClick={() => handleCreateBlock('link')}>
             <LinkIcon sx={{ mr: 1 }} /> Link mit Beschreibung
@@ -1146,6 +1457,85 @@ const ContentBlocks: React.FC<ContentBlocksProps> = ({
           </MenuItem>
         ) : null}
       </Menu>
+
+      <Dialog open={viewerOpen} onClose={closeViewer} maxWidth="lg" fullWidth>
+        <DialogContent
+          sx={{
+            p: 0,
+            bgcolor: '#0b0b0b',
+            color: '#fff'
+          }}
+        >
+          <Box
+            sx={{
+              position: 'relative',
+              minHeight: { xs: '60vh', md: '70vh' },
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            {viewerImages.length > 0 ? (
+              <Box
+                component="img"
+                src={viewerImages[viewerIndex]}
+                alt=""
+                sx={{ maxWidth: '100%', maxHeight: '80vh', objectFit: 'contain' }}
+              />
+            ) : null}
+            <IconButton
+              onClick={closeViewer}
+              sx={{ position: 'absolute', top: 8, right: 8, color: '#fff' }}
+              aria-label="Schliessen"
+            >
+              <CloseIcon />
+            </IconButton>
+            {viewerImages.length > 1 ? (
+              <>
+                <IconButton
+                  onClick={handleViewerPrev}
+                  sx={{
+                    position: 'absolute',
+                    left: 12,
+                    color: '#fff',
+                    bgcolor: 'rgba(0,0,0,0.35)',
+                    '&:hover': { bgcolor: 'rgba(0,0,0,0.5)' }
+                  }}
+                  aria-label="Vorheriges Bild"
+                >
+                  <ChevronLeftIcon />
+                </IconButton>
+                <IconButton
+                  onClick={handleViewerNext}
+                  sx={{
+                    position: 'absolute',
+                    right: 12,
+                    color: '#fff',
+                    bgcolor: 'rgba(0,0,0,0.35)',
+                    '&:hover': { bgcolor: 'rgba(0,0,0,0.5)' }
+                  }}
+                  aria-label="Naechstes Bild"
+                >
+                  <ChevronRightIcon />
+                </IconButton>
+              </>
+            ) : null}
+            {viewerImages.length > 1 ? (
+              <Box
+                sx={{
+                  position: 'absolute',
+                  bottom: 12,
+                  right: 16,
+                  fontSize: '0.9rem',
+                  opacity: 0.8
+                }}
+              >
+                {viewerIndex + 1} / {viewerImages.length}
+              </Box>
+            ) : null}
+          </Box>
+        </DialogContent>
+      </Dialog>
 
       <ImageCropDialog
         open={cropDialogOpen}

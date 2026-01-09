@@ -299,7 +299,7 @@ const Home: React.FC = () => {
       { id: 'home-downloads-emergency', titleKey: 'menu.downloads.emergency', bodyKey: undefined, allowedBlockTypes: ['link'] }
     ],
     gallery: [
-      { id: 'home-gallery-current', titleKey: 'menu.gallery.current', bodyKey: undefined, allowedBlockTypes: ['image'] },
+      { id: 'home-gallery-current', titleKey: 'menu.gallery.current', bodyKey: undefined, allowedBlockTypes: ['gallery'] },
       { id: 'home-gallery-past', titleKey: 'menu.gallery.past', bodyKey: undefined, allowedBlockTypes: ['file', 'link'] }
     ],
     camp: [
