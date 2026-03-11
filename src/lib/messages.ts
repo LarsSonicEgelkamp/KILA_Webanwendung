@@ -11,6 +11,10 @@ export type Message = {
   createdAt: string;
 };
 
+type InboxEmailNotificationPayload = {
+  messageIds: string[];
+};
+
 type MessageRow = {
   id: string;
   sender_id: string;
@@ -32,6 +36,15 @@ const mapRow = (row: MessageRow): Message => ({
   isBroadcast: row.is_broadcast ?? false,
   createdAt: row.created_at
 });
+
+const triggerInboxEmailNotifications = async (payload: InboxEmailNotificationPayload): Promise<void> => {
+  const { error } = await supabase.functions.invoke('send-inbox-email', {
+    body: payload
+  });
+  if (error) {
+    throw error;
+  }
+};
 
 export const listMessagesForUser = async (userId: string): Promise<Message[]> => {
   const { data, error } = await supabase
@@ -70,7 +83,8 @@ export const sendMessageToRecipients = async (input: {
   body: string;
   isBroadcast?: boolean;
 }): Promise<void> => {
-  const rows = input.recipientIds.map((recipientId) => ({
+  const uniqueRecipientIds = Array.from(new Set(input.recipientIds.filter(Boolean)));
+  const rows = uniqueRecipientIds.map((recipientId) => ({
     sender_id: input.senderId,
     recipient_id: recipientId,
     sender_name: input.senderName,
@@ -78,8 +92,21 @@ export const sendMessageToRecipients = async (input: {
     body: input.body,
     is_broadcast: input.isBroadcast ?? false
   }));
-  const { error } = await supabase.from('messages').insert(rows);
-  if (error) {
+  const { data, error } = await supabase.from('messages').insert(rows).select('id');
+  if (error || !data) {
     throw error;
+  }
+
+  const messageIds = data.map((item) => item.id).filter(Boolean);
+  if (messageIds.length === 0) {
+    return;
+  }
+
+  try {
+    await triggerInboxEmailNotifications({
+      messageIds
+    });
+  } catch (notificationError) {
+    console.error('Inbox email notification failed', notificationError);
   }
 };
