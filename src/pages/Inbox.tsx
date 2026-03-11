@@ -2,7 +2,7 @@ import React from 'react';
 import { Autocomplete, Avatar, Box, Button, Divider, TextField, Typography, useTheme } from '@mui/material';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../auth/AuthContext';
-import { listMessagesForUser, sendMessageToRecipients } from '../lib/messages';
+import { listMessagesForUser, sendMessageToRecipients, SendMessageResult } from '../lib/messages';
 
 const Inbox: React.FC = () => {
   const { t } = useTranslation();
@@ -94,6 +94,25 @@ const Inbox: React.FC = () => {
   const isAdmin = user.role === 'admin';
   const availableRecipients = users;
 
+  const buildDeliveryFeedback = (result: SendMessageResult, action: 'send' | 'reply') => {
+    const successText = action === 'send' ? 'Nachricht gesendet.' : 'Antwort gesendet.';
+    if (result.emailFailed > 0 || result.emailSent === 0) {
+      return {
+        success: '',
+        error:
+          `Nachricht wurde gespeichert, aber E-Mail-Zustellung fehlgeschlagen (${result.emailFailed}/${result.savedCount}). ` +
+          'Bitte Supabase Function Logs pruefen.'
+      };
+    }
+    if (result.emailSkipped > 0) {
+      return {
+        success: `${successText} ${result.emailSkipped} Empfaenger ohne E-Mail wurden uebersprungen.`,
+        error: ''
+      };
+    }
+    return { success: successText, error: '' };
+  };
+
   const handleSend = async () => {
     if (!user || sending) {
       return;
@@ -115,7 +134,7 @@ const Inbox: React.FC = () => {
         setSending(false);
         return;
       }
-      await sendMessageToRecipients({
+      const result = await sendMessageToRecipients({
         senderId: user.id,
         senderName: user.name,
         senderAvatarUrl: user.avatarUrl,
@@ -126,7 +145,9 @@ const Inbox: React.FC = () => {
       setMessageBody('');
       setSelectedRecipients([]);
       setRecipientSearch('');
-      setSuccess('Nachricht gesendet.');
+      const feedback = buildDeliveryFeedback(result, 'send');
+      setSuccess(feedback.success);
+      setError(feedback.error);
       await loadMessages();
     } catch {
       setError('Nachricht konnte nicht gesendet werden.');
@@ -148,7 +169,7 @@ const Inbox: React.FC = () => {
     setError('');
     setSuccess('');
     try {
-      await sendMessageToRecipients({
+      const result = await sendMessageToRecipients({
         senderId: user.id,
         senderName: user.name,
         senderAvatarUrl: user.avatarUrl,
@@ -158,7 +179,9 @@ const Inbox: React.FC = () => {
       });
       setReplyBody('');
       setReplyToId(null);
-      setSuccess('Antwort gesendet.');
+      const feedback = buildDeliveryFeedback(result, 'reply');
+      setSuccess(feedback.success);
+      setError(feedback.error);
       await loadMessages();
     } catch {
       setError('Antwort konnte nicht gesendet werden.');

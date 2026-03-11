@@ -15,6 +15,20 @@ type InboxEmailNotificationPayload = {
   messageIds: string[];
 };
 
+type InboxEmailNotificationResponse = {
+  sent: number;
+  skipped: number;
+  failed: number;
+};
+
+export type SendMessageResult = {
+  savedCount: number;
+  emailSent: number;
+  emailSkipped: number;
+  emailFailed: number;
+  emailError?: string;
+};
+
 type MessageRow = {
   id: string;
   sender_id: string;
@@ -37,13 +51,19 @@ const mapRow = (row: MessageRow): Message => ({
   createdAt: row.created_at
 });
 
-const triggerInboxEmailNotifications = async (payload: InboxEmailNotificationPayload): Promise<void> => {
-  const { error } = await supabase.functions.invoke('send-inbox-email', {
+const triggerInboxEmailNotifications = async (
+  payload: InboxEmailNotificationPayload
+): Promise<InboxEmailNotificationResponse> => {
+  const { data, error } = await supabase.functions.invoke<InboxEmailNotificationResponse>('send-inbox-email', {
     body: payload
   });
   if (error) {
     throw error;
   }
+  if (!data || typeof data.sent !== 'number' || typeof data.skipped !== 'number' || typeof data.failed !== 'number') {
+    throw new Error('Invalid email notification response.');
+  }
+  return data;
 };
 
 export const listMessagesForUser = async (userId: string): Promise<Message[]> => {
@@ -82,7 +102,7 @@ export const sendMessageToRecipients = async (input: {
   recipientIds: string[];
   body: string;
   isBroadcast?: boolean;
-}): Promise<void> => {
+}): Promise<SendMessageResult> => {
   const uniqueRecipientIds = Array.from(new Set(input.recipientIds.filter(Boolean)));
   const rows = uniqueRecipientIds.map((recipientId) => ({
     sender_id: input.senderId,
@@ -99,14 +119,36 @@ export const sendMessageToRecipients = async (input: {
 
   const messageIds = data.map((item) => item.id).filter(Boolean);
   if (messageIds.length === 0) {
-    return;
+    return {
+      savedCount: 0,
+      emailSent: 0,
+      emailSkipped: 0,
+      emailFailed: 0
+    };
   }
 
   try {
-    await triggerInboxEmailNotifications({
+    const delivery = await triggerInboxEmailNotifications({
       messageIds
     });
+    return {
+      savedCount: messageIds.length,
+      emailSent: delivery.sent,
+      emailSkipped: delivery.skipped,
+      emailFailed: delivery.failed
+    };
   } catch (notificationError) {
+    const message =
+      notificationError instanceof Error
+        ? notificationError.message
+        : 'Unknown email notification error.';
     console.error('Inbox email notification failed', notificationError);
+    return {
+      savedCount: messageIds.length,
+      emailSent: 0,
+      emailSkipped: 0,
+      emailFailed: messageIds.length,
+      emailError: message
+    };
   }
 };
