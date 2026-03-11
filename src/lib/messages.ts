@@ -110,6 +110,13 @@ export const getLatestInboxMessageTimestamp = async (userId: string): Promise<st
   return data?.created_at ?? null;
 };
 
+export const deleteMessage = async (messageId: string): Promise<void> => {
+  const { error } = await supabase.from('messages').delete().eq('id', messageId);
+  if (error) {
+    throw error;
+  }
+};
+
 export const sendMessageToRecipients = async (input: {
   senderId: string;
   senderName: string;

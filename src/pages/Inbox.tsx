@@ -1,8 +1,9 @@
 import React from 'react';
-import { Autocomplete, Avatar, Box, Button, Divider, TextField, Typography, useTheme } from '@mui/material';
+import { Autocomplete, Avatar, Box, Button, Divider, IconButton, TextField, Typography, useTheme } from '@mui/material';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../auth/AuthContext';
-import { listMessagesForUser, sendMessageToRecipients, SendMessageResult } from '../lib/messages';
+import { deleteMessage, listMessagesForUser, sendMessageToRecipients, SendMessageResult } from '../lib/messages';
 
 const Inbox: React.FC = () => {
   const { t } = useTranslation();
@@ -29,6 +30,7 @@ const Inbox: React.FC = () => {
   const [replyToId, setReplyToId] = React.useState<string | null>(null);
   const [replyBody, setReplyBody] = React.useState('');
   const [sending, setSending] = React.useState(false);
+  const [deletingMessageId, setDeletingMessageId] = React.useState<string | null>(null);
   const [error, setError] = React.useState('');
   const [success, setSuccess] = React.useState('');
   const [recipientsLoading, setRecipientsLoading] = React.useState(false);
@@ -190,6 +192,32 @@ const Inbox: React.FC = () => {
     }
   };
 
+  const handleDeleteMessage = async (messageId: string) => {
+    if (deletingMessageId || sending) {
+      return;
+    }
+    const confirmed = window.confirm('Nachricht wirklich loeschen?');
+    if (!confirmed) {
+      return;
+    }
+    setDeletingMessageId(messageId);
+    setError('');
+    setSuccess('');
+    try {
+      await deleteMessage(messageId);
+      if (replyToId === messageId) {
+        setReplyToId(null);
+        setReplyBody('');
+      }
+      setSuccess('Nachricht geloescht.');
+      await loadMessages();
+    } catch {
+      setError('Nachricht konnte nicht geloescht werden.');
+    } finally {
+      setDeletingMessageId(null);
+    }
+  };
+
   return (
     <Box sx={{ p: { xs: 2, md: 4 }, maxWidth: 860, mx: 'auto' }} data-bg={pageBg}>
       <Typography variant="h4" sx={{ color: '#0088ff', fontWeight: 700, mb: 3 }}>
@@ -304,6 +332,14 @@ const Inbox: React.FC = () => {
                   {new Date(message.createdAt).toLocaleString('de-DE')}
                 </Typography>
               </Box>
+              <IconButton
+                size="small"
+                onClick={() => handleDeleteMessage(message.id)}
+                disabled={Boolean(deletingMessageId) || sending}
+                aria-label="Nachricht loeschen"
+              >
+                <DeleteOutlineIcon fontSize="small" />
+              </IconButton>
             </Box>
             <Divider sx={{ my: 2 }} />
             <Typography sx={{ whiteSpace: 'pre-line' }}>{message.body}</Typography>
