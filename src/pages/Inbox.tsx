@@ -205,14 +205,16 @@ const Inbox: React.FC = () => {
     setSuccess('');
     try {
       await deleteMessage(messageId);
+      setMessages((prev) => prev.filter((item) => item.id !== messageId));
       if (replyToId === messageId) {
         setReplyToId(null);
         setReplyBody('');
       }
       setSuccess('Nachricht geloescht.');
       await loadMessages();
-    } catch {
-      setError('Nachricht konnte nicht geloescht werden.');
+    } catch (deleteError) {
+      const detail = deleteError instanceof Error ? ` (${deleteError.message})` : '';
+      setError(`Nachricht konnte nicht geloescht werden.${detail}`);
     } finally {
       setDeletingMessageId(null);
     }

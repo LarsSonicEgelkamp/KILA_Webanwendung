@@ -111,9 +111,12 @@ export const getLatestInboxMessageTimestamp = async (userId: string): Promise<st
 };
 
 export const deleteMessage = async (messageId: string): Promise<void> => {
-  const { error } = await supabase.from('messages').delete().eq('id', messageId);
+  const { data, error } = await supabase.from('messages').delete().eq('id', messageId).select('id');
   if (error) {
     throw error;
+  }
+  if (!data || data.length === 0) {
+    throw new Error('Message not deleted (not found or no permission).');
   }
 };
 
