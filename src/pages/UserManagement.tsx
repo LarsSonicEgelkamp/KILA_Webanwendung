@@ -70,7 +70,11 @@ const UserManagement: React.FC = () => {
       return;
     }
     setDeletingId(id);
-    await deleteUser(id);
+    setUpdateError('');
+    const result = await deleteUser(id);
+    if (!result.ok) {
+      setUpdateError('User konnte nicht geloescht werden.');
+    }
     setDeletingId(null);
   };
 

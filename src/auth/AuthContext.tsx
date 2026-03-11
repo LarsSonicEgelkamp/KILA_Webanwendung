@@ -1,5 +1,6 @@
 import React from 'react';
 import { supabase } from '../lib/supabaseClient';
+import { sendMessageToRecipients } from '../lib/messages';
 
 export type Role = 'admin' | 'leitung' | 'user';
 
@@ -78,6 +79,16 @@ const profileFromRow = (row: {
   role: row.role ?? 'user',
   avatarUrl: row.avatar_url ?? null
 });
+
+const roleLabel = (role: Role): string => {
+  if (role === 'admin') {
+    return 'Admin';
+  }
+  if (role === 'leitung') {
+    return 'Leitung';
+  }
+  return 'User';
+};
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [users, setUsers] = React.useState<User[]>([]);
@@ -211,20 +222,71 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (role === 'admin') {
       return { ok: false, error: 'server_error' };
     }
+    const targetUser = users.find((item) => item.id === id);
+    const previousRole = targetUser?.role ?? null;
     const { error } = await supabase.from('profiles').update({ role }).eq('id', id);
     if (error) {
       return { ok: false, error: 'server_error' };
     }
     await refreshUsers();
+
+    if (user && targetUser && previousRole && previousRole !== role) {
+      const changeDetails = [
+        'Benutzerverwaltung: Rollenupdate',
+        '',
+        `Geaenderter Benutzer: ${targetUser.name}${targetUser.email ? ` (${targetUser.email})` : ''}`,
+        `Vorherige Rolle: ${roleLabel(previousRole)}`,
+        `Neue Rolle: ${roleLabel(role)}`,
+        `Geaendert von: ${user.name}`
+      ].join('\n');
+      const recipientIds = user.id === id ? [id] : [id, user.id];
+      try {
+        await sendMessageToRecipients({
+          senderId: user.id,
+          senderName: user.name,
+          senderAvatarUrl: user.avatarUrl,
+          recipientIds,
+          body: changeDetails,
+          isBroadcast: false
+        });
+      } catch {
+        // Ignore notification failures to keep role update flow non-blocking.
+      }
+    }
+
     return { ok: true };
   };
 
   const deleteUser = async (id: string): Promise<AuthResult> => {
+    const targetUser = users.find((item) => item.id === id);
     const { error } = await supabase.from('profiles').delete().eq('id', id);
     if (error) {
       return { ok: false, error: 'server_error' };
     }
     await refreshUsers();
+
+    if (user && targetUser) {
+      const changeDetails = [
+        'Benutzerverwaltung: Benutzer geloescht',
+        '',
+        `Geloeschter Benutzer: ${targetUser.name}${targetUser.email ? ` (${targetUser.email})` : ''}`,
+        `Rolle zum Zeitpunkt der Loeschung: ${roleLabel(targetUser.role)}`,
+        `Geloescht von: ${user.name}`
+      ].join('\n');
+      try {
+        await sendMessageToRecipients({
+          senderId: user.id,
+          senderName: user.name,
+          senderAvatarUrl: user.avatarUrl,
+          recipientIds: [user.id],
+          body: changeDetails,
+          isBroadcast: false
+        });
+      } catch {
+        // Ignore notification failures to keep deletion flow non-blocking.
+      }
+    }
+
     return { ok: true };
   };
 
