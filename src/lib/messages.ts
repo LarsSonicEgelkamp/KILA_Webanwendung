@@ -54,10 +54,25 @@ const mapRow = (row: MessageRow): Message => ({
 const triggerInboxEmailNotifications = async (
   payload: InboxEmailNotificationPayload
 ): Promise<InboxEmailNotificationResponse> => {
+  const {
+    data: { session }
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error('No active session token for email notification.');
+  }
+
   const { data, error } = await supabase.functions.invoke<InboxEmailNotificationResponse>('send-inbox-email', {
-    body: payload
+    body: payload,
+    headers: {
+      Authorization: `Bearer ${session.access_token}`
+    }
   });
   if (error) {
+    const response = (error as { context?: Response }).context;
+    if (response) {
+      const detail = await response.text();
+      throw new Error(`${error.message}${detail ? `: ${detail}` : ''}`);
+    }
     throw error;
   }
   if (!data || typeof data.sent !== 'number' || typeof data.skipped !== 'number' || typeof data.failed !== 'number') {
