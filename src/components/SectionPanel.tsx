@@ -74,7 +74,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
   const [commitSignals, setCommitSignals] = React.useState<Record<string, number>>({});
   const [savingSections, setSavingSections] = React.useState<Record<string, boolean>>({});
   const [metaDrafts, setMetaDrafts] = React.useState<
-    Record<string, { showAuthor: boolean; showPublishDate: boolean; publishDate: string }>
+    Record<string, { showTitle: boolean; showAuthor: boolean; showPublishDate: boolean; publishDate: string }>
   >({});
   const [accessDialogOpen, setAccessDialogOpen] = React.useState(false);
   const [accessTarget, setAccessTarget] = React.useState<ContentSection | null>(null);
@@ -141,8 +141,11 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
   };
 
   const buildSnapshot = React.useCallback(
-    (title: string, blocks: { type: string; content: string | null; imageUrl: string | null; width: number; orderIndex: number }[]) =>
-      JSON.stringify({ title, blocks }, null, 2),
+    (
+      title: string,
+      showTitle: boolean,
+      blocks: { type: string; content: string | null; imageUrl: string | null; width: number; orderIndex: number }[]
+    ) => JSON.stringify({ title, showTitle, blocks }, null, 2),
     []
   );
 
@@ -200,6 +203,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
     setMetaDrafts((prev) => ({
       ...prev,
       [section.id]: {
+        showTitle: section.showTitle,
         showAuthor: section.showAuthor,
         showPublishDate: section.showPublishDate,
         publishDate: section.publishDate ?? ''
@@ -217,6 +221,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
       return;
     }
     const metaDraft = metaDrafts[section.id] ?? {
+      showTitle: section.showTitle,
       showAuthor: section.showAuthor,
       showPublishDate: section.showPublishDate,
       publishDate: section.publishDate ?? ''
@@ -224,12 +229,16 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
     const normalizedPublishDate = metaDraft.publishDate.trim() || null;
     const updates: {
       title?: string;
+      showTitle?: boolean;
       showAuthor?: boolean;
       showPublishDate?: boolean;
       publishDate?: string | null;
     } = {};
     if (draftTitle !== section.title) {
       updates.title = draftTitle;
+    }
+    if (metaDraft.showTitle !== section.showTitle) {
+      updates.showTitle = metaDraft.showTitle;
     }
     if (metaDraft.showAuthor !== section.showAuthor) {
       updates.showAuthor = metaDraft.showAuthor;
@@ -365,6 +374,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
             const isSavingSection = Boolean(savingSections[section.id]);
             const titleValue = titleDrafts[section.id] ?? section.title;
             const metaDraft = metaDrafts[section.id] ?? {
+              showTitle: section.showTitle,
               showAuthor: section.showAuthor,
               showPublishDate: section.showPublishDate,
               publishDate: section.publishDate ?? ''
@@ -402,6 +412,23 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                           fullWidth
                         />
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
+                          <FormControlLabel
+                            control={
+                              <Checkbox
+                                checked={metaDraft.showTitle}
+                                onChange={(event) =>
+                                  setMetaDrafts((prev) => ({
+                                    ...prev,
+                                    [section.id]: {
+                                      ...metaDraft,
+                                      showTitle: event.target.checked
+                                    }
+                                  }))
+                                }
+                              />
+                            }
+                            label="Ueberschrift anzeigen"
+                          />
                           <FormControlLabel
                             control={
                               <Checkbox
@@ -457,12 +484,19 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                       </Box>
                     ) : (
                       <>
-                        <Typography variant="h5" sx={{ fontWeight: 700 }}>
-                          {section.title}
-                        </Typography>
+                        {section.showTitle ? (
+                          <Typography variant="h5" sx={{ fontWeight: 700 }}>
+                            {section.title}
+                          </Typography>
+                        ) : null}
                         {publishedMeta.length > 0 ? (
                           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                             {publishedMeta.join(' | ')}
+                          </Typography>
+                        ) : null}
+                        {isStaff && !section.showTitle ? (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                            Interne Ueberschrift: {section.title}
                           </Typography>
                         ) : null}
                         {isStaff && !section.showAuthor ? (
@@ -515,6 +549,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                   buildSnapshot={(blocks) =>
                     buildSnapshot(
                       section.title,
+                      section.showTitle,
                       blocks.map((block) => ({
                         type: block.type,
                         content: block.content ?? null,

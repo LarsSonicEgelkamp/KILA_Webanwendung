@@ -4,6 +4,7 @@ export type ContentSection = {
   id: string;
   pageSectionId: string;
   title: string;
+  showTitle: boolean;
   ownerId: string;
   ownerName: string;
   showAuthor: boolean;
@@ -28,6 +29,7 @@ type SectionRow = {
   id: string;
   page_section_id: string;
   title: string;
+  show_title: boolean | null;
   owner_id: string;
   owner_name: string;
   show_author: boolean | null;
@@ -40,6 +42,7 @@ type SectionRow = {
 
 type SectionUpdateRow = {
   title?: string;
+  show_title?: boolean;
   show_author?: boolean;
   show_publish_date?: boolean;
   publish_date?: string | null;
@@ -60,6 +63,7 @@ const mapSection = (row: SectionRow): ContentSection => ({
   id: row.id,
   pageSectionId: row.page_section_id,
   title: row.title,
+  showTitle: row.show_title ?? true,
   ownerId: row.owner_id,
   ownerName: row.owner_name,
   showAuthor: row.show_author ?? false,
@@ -84,7 +88,7 @@ export const listContentSections = async (pageSectionId: string): Promise<Conten
   const { data, error } = await supabase
     .from('content_sections')
     .select(
-      'id, page_section_id, title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
+      'id, page_section_id, title, show_title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
     )
     .eq('page_section_id', pageSectionId)
     .order('created_at', { ascending: true });
@@ -99,6 +103,7 @@ export const createContentSection = async (input: {
   title: string;
   ownerId: string;
   ownerName: string;
+  showTitle?: boolean;
   showAuthor?: boolean;
   showPublishDate?: boolean;
   publishDate?: string | null;
@@ -109,6 +114,7 @@ export const createContentSection = async (input: {
     .insert({
       page_section_id: input.pageSectionId,
       title: input.title,
+      show_title: input.showTitle ?? true,
       owner_id: input.ownerId,
       owner_name: input.ownerName,
       show_author: input.showAuthor ?? false,
@@ -117,7 +123,7 @@ export const createContentSection = async (input: {
       editor_ids: input.editorIds ?? []
     })
     .select(
-      'id, page_section_id, title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
+      'id, page_section_id, title, show_title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
     )
     .single();
   if (error || !data) {
@@ -130,6 +136,7 @@ export const updateContentSection = async (
   id: string,
   updates: {
     title?: string;
+    showTitle?: boolean;
     showAuthor?: boolean;
     showPublishDate?: boolean;
     publishDate?: string | null;
@@ -139,6 +146,9 @@ export const updateContentSection = async (
   const updatePayload: SectionUpdateRow = {};
   if (updates.title !== undefined) {
     updatePayload.title = updates.title;
+  }
+  if (updates.showTitle !== undefined) {
+    updatePayload.show_title = updates.showTitle;
   }
   if (updates.showAuthor !== undefined) {
     updatePayload.show_author = updates.showAuthor;
@@ -158,7 +168,7 @@ export const updateContentSection = async (
     .update(updatePayload)
     .eq('id', id)
     .select(
-      'id, page_section_id, title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
+      'id, page_section_id, title, show_title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
     )
     .single();
   if (error || !data) {
