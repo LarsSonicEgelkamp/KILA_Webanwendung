@@ -5,6 +5,7 @@ import {
   Avatar,
   Box,
   Button,
+  ButtonBase,
   CircularProgress,
   Divider,
   IconButton,
@@ -38,6 +39,7 @@ import Login from './pages/Login';
 import SignUp from './pages/SignUp';
 import UserManagement from './pages/UserManagement';
 import kilaLogo from './assets/img/KILA_Logo.png';
+import kilaMinimalLogo from './assets/img/KILA_Minimalistisch.png';
 
 const drawerWidth = '50vw';
 const appBarHeight = 56;
@@ -48,7 +50,7 @@ const App: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user, loading, logout } = useAuth();
-  const { activeSection } = useSection();
+  const { activeSection, setActiveSection } = useSection();
   const theme = useTheme();
   const { mode, toggleMode } = useThemeMode();
   const isHome = location.pathname === '/';
@@ -285,6 +287,12 @@ const App: React.FC = () => {
     navigate('/');
   };
 
+  const handleNavigateHome = () => {
+    setActiveSection('home');
+    navigate('/');
+    mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   return (
     <Box sx={{ height: '100dvh', overflow: 'hidden', bgcolor: theme.palette.background.default }}>
       <Box
@@ -328,7 +336,44 @@ const App: React.FC = () => {
             justifyContent: 'space-between'
           }}
         >
-          <Box sx={{ pointerEvents: 'auto', pl: { xs: 1, md: 2 } }}>
+          <Box
+            sx={{
+              pointerEvents: 'auto',
+              pl: { xs: 1, md: 2 },
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.25
+            }}
+          >
+            {!isHome ? (
+              <ButtonBase
+                onClick={handleNavigateHome}
+                aria-label="Zur Startseite"
+                sx={{
+                  borderRadius: 999,
+                  px: 0.75,
+                  py: 0.35,
+                  bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.72)',
+                  backdropFilter: 'blur(8px)',
+                  transition: 'transform 120ms ease, background-color 120ms ease',
+                  '&:hover': {
+                    bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.88)',
+                    transform: 'translateY(-1px)'
+                  }
+                }}
+              >
+                <Box
+                  component="img"
+                  src={kilaMinimalLogo}
+                  alt="KILA Startseite"
+                  sx={{
+                    width: { xs: 42, md: 52 },
+                    height: 'auto',
+                    display: 'block'
+                  }}
+                />
+              </ButtonBase>
+            ) : null}
             {!loading && !user ? (
               <Button
                 onClick={() => navigate('/anmeldung/login')}
