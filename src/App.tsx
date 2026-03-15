@@ -333,7 +333,8 @@ const App: React.FC = () => {
         <Toolbar
           sx={{
             minHeight: `${appBarHeight}px`,
-            justifyContent: 'space-between'
+            justifyContent: 'space-between',
+            position: 'relative'
           }}
         >
           <Box
@@ -345,35 +346,6 @@ const App: React.FC = () => {
               gap: 1.25
             }}
           >
-            {!isHome ? (
-              <ButtonBase
-                onClick={handleNavigateHome}
-                aria-label="Zur Startseite"
-                sx={{
-                  borderRadius: 999,
-                  px: 0.75,
-                  py: 0.35,
-                  bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.72)',
-                  backdropFilter: 'blur(8px)',
-                  transition: 'transform 120ms ease, background-color 120ms ease',
-                  '&:hover': {
-                    bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.88)',
-                    transform: 'translateY(-1px)'
-                  }
-                }}
-              >
-                <Box
-                  component="img"
-                  src={kilaMinimalLogo}
-                  alt="KILA Startseite"
-                  sx={{
-                    width: { xs: 42, md: 52 },
-                    height: 'auto',
-                    display: 'block'
-                  }}
-                />
-              </ButtonBase>
-            ) : null}
             {!loading && !user ? (
               <Button
                 onClick={() => navigate('/anmeldung/login')}
@@ -443,6 +415,40 @@ const App: React.FC = () => {
               </Button>
             ) : null}
           </Box>
+          {!isHome ? (
+            <ButtonBase
+              onClick={handleNavigateHome}
+              aria-label="Zur Startseite"
+              sx={{
+                pointerEvents: 'auto',
+                position: 'absolute',
+                left: '50%',
+                top: '50%',
+                transform: 'translate(-50%, -50%)',
+                borderRadius: 999,
+                px: 0.75,
+                py: 0.35,
+                bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.72)',
+                backdropFilter: 'blur(8px)',
+                transition: 'transform 120ms ease, background-color 120ms ease',
+                '&:hover': {
+                  bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.88)',
+                  transform: 'translate(-50%, calc(-50% - 1px))'
+                }
+              }}
+            >
+              <Box
+                component="img"
+                src={kilaMinimalLogo}
+                alt="KILA Startseite"
+                sx={{
+                  width: { xs: 42, md: 52 },
+                  height: 'auto',
+                  display: 'block'
+                }}
+              />
+            </ButtonBase>
+          ) : null}
           <IconButton
             onClick={handleToggleNav}
             aria-label={navOpen ? 'Navigation schliessen' : 'Navigation oeffnen'}
