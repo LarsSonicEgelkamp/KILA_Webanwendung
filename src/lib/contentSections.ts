@@ -5,6 +5,7 @@ export type ContentSection = {
   pageSectionId: string;
   title: string;
   showTitle: boolean;
+  orderIndex: number;
   ownerId: string;
   ownerName: string;
   showAuthor: boolean;
@@ -30,6 +31,7 @@ type SectionRow = {
   page_section_id: string;
   title: string;
   show_title?: boolean | null;
+  order_index?: number | null;
   owner_id: string;
   owner_name: string;
   show_author: boolean | null;
@@ -43,6 +45,7 @@ type SectionRow = {
 type SectionUpdateRow = {
   title?: string;
   show_title?: boolean;
+  order_index?: number;
   show_author?: boolean;
   show_publish_date?: boolean;
   publish_date?: string | null;
@@ -59,17 +62,38 @@ type HistoryRow = {
   after_snapshot: string;
 };
 
-let supportsShowTitleColumn: boolean | null = null;
-
-const isMissingShowTitleError = (error: { message?: string | null; details?: string | null } | null): boolean => {
-  const normalized = `${error?.message ?? ''} ${error?.details ?? ''}`.toLowerCase();
-  return normalized.includes('show_title') && (normalized.includes('column') || normalized.includes('schema cache'));
+const sectionSchemaSupport = {
+  showTitle: null as boolean | null,
+  orderIndex: null as boolean | null
 };
 
-const markShowTitleSupport = (usedShowTitle: boolean) => {
-  if (supportsShowTitleColumn === null) {
-    supportsShowTitleColumn = usedShowTitle;
+const isMissingColumnError = (
+  error: { message?: string | null; details?: string | null } | null,
+  columnName: 'show_title' | 'order_index'
+): boolean => {
+  const normalized = `${error?.message ?? ''} ${error?.details ?? ''}`.toLowerCase();
+  return normalized.includes(columnName) && (normalized.includes('column') || normalized.includes('schema cache'));
+};
+
+const getSectionSelect = (useShowTitle: boolean, useOrderIndex: boolean): string => {
+  const fields = ['id', 'page_section_id', 'title'];
+  if (useShowTitle) {
+    fields.push('show_title');
   }
+  if (useOrderIndex) {
+    fields.push('order_index');
+  }
+  fields.push(
+    'owner_id',
+    'owner_name',
+    'show_author',
+    'show_publish_date',
+    'publish_date',
+    'editor_ids',
+    'created_at',
+    'updated_at'
+  );
+  return fields.join(', ');
 };
 
 const mapSection = (row: SectionRow): ContentSection => ({
@@ -77,6 +101,7 @@ const mapSection = (row: SectionRow): ContentSection => ({
   pageSectionId: row.page_section_id,
   title: row.title,
   showTitle: row.show_title ?? true,
+  orderIndex: row.order_index ?? 0,
   ownerId: row.owner_id,
   ownerName: row.owner_name,
   showAuthor: row.show_author ?? false,
@@ -97,77 +122,114 @@ const mapHistory = (row: HistoryRow): SectionHistoryEntry => ({
   afterSnapshot: row.after_snapshot
 });
 
-export const listContentSections = async (pageSectionId: string): Promise<ContentSection[]> => {
-  let usedShowTitle = supportsShowTitleColumn !== false;
-  let data: SectionRow[] | null = null;
-  let error: { message?: string | null; details?: string | null } | null = null;
-  {
-    const response = await supabase
-      .from('content_sections')
-      .select(
-        usedShowTitle
-          ? 'id, page_section_id, title, show_title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
-          : 'id, page_section_id, title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
-      )
-      .eq('page_section_id', pageSectionId)
-      .order('created_at', { ascending: true });
-    data = response.data as SectionRow[] | null;
-    error = response.error;
+const markSchemaSupport = (useShowTitle: boolean, useOrderIndex: boolean) => {
+  if (sectionSchemaSupport.showTitle === null) {
+    sectionSchemaSupport.showTitle = useShowTitle;
   }
-  if (error && usedShowTitle && isMissingShowTitleError(error)) {
-    supportsShowTitleColumn = false;
-    usedShowTitle = false;
-    const response = await supabase
-      .from('content_sections')
-      .select(
-        'id, page_section_id, title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
-      )
-      .eq('page_section_id', pageSectionId)
-      .order('created_at', { ascending: true });
-    data = response.data as SectionRow[] | null;
-    error = response.error;
+  if (sectionSchemaSupport.orderIndex === null) {
+    sectionSchemaSupport.orderIndex = useOrderIndex;
+  }
+};
+
+const listSectionsQuery = async (
+  pageSectionId: string,
+  useShowTitle: boolean,
+  useOrderIndex: boolean
+): Promise<{ data: SectionRow[] | null; error: { message?: string | null; details?: string | null } | null }> => {
+  const response = await supabase
+    .from('content_sections')
+    .select(getSectionSelect(useShowTitle, useOrderIndex))
+    .eq('page_section_id', pageSectionId)
+    .order(useOrderIndex ? 'order_index' : 'created_at', { ascending: true });
+  return {
+    data: response.data as SectionRow[] | null,
+    error: response.error
+  };
+};
+
+const getSectionQuery = async (
+  id: string,
+  useShowTitle: boolean,
+  useOrderIndex: boolean
+): Promise<{ data: SectionRow | null; error: { message?: string | null; details?: string | null } | null }> => {
+  const response = await supabase.from('content_sections').select(getSectionSelect(useShowTitle, useOrderIndex)).eq('id', id).single();
+  return {
+    data: response.data as SectionRow | null,
+    error: response.error
+  };
+};
+
+const insertSectionQuery = async (
+  payload: Record<string, unknown>,
+  useShowTitle: boolean,
+  useOrderIndex: boolean
+): Promise<{ data: SectionRow | null; error: { message?: string | null; details?: string | null } | null }> => {
+  const response = await supabase.from('content_sections').insert(payload).select(getSectionSelect(useShowTitle, useOrderIndex)).single();
+  return {
+    data: response.data as SectionRow | null,
+    error: response.error
+  };
+};
+
+const updateSectionQuery = async (
+  id: string,
+  payload: SectionUpdateRow,
+  useShowTitle: boolean,
+  useOrderIndex: boolean
+): Promise<{ data: SectionRow | null; error: { message?: string | null; details?: string | null } | null }> => {
+  const response = await supabase
+    .from('content_sections')
+    .update(payload)
+    .eq('id', id)
+    .select(getSectionSelect(useShowTitle, useOrderIndex))
+    .single();
+  return {
+    data: response.data as SectionRow | null,
+    error: response.error
+  };
+};
+
+export const listContentSections = async (pageSectionId: string): Promise<ContentSection[]> => {
+  let useShowTitle = sectionSchemaSupport.showTitle !== false;
+  let useOrderIndex = sectionSchemaSupport.orderIndex !== false;
+  let { data, error } = await listSectionsQuery(pageSectionId, useShowTitle, useOrderIndex);
+
+  if (error && useShowTitle && isMissingColumnError(error, 'show_title')) {
+    sectionSchemaSupport.showTitle = false;
+    useShowTitle = false;
+    ({ data, error } = await listSectionsQuery(pageSectionId, useShowTitle, useOrderIndex));
+  }
+  if (error && useOrderIndex && isMissingColumnError(error, 'order_index')) {
+    sectionSchemaSupport.orderIndex = false;
+    useOrderIndex = false;
+    ({ data, error } = await listSectionsQuery(pageSectionId, useShowTitle, useOrderIndex));
   }
   if (error) {
     throw error;
   }
-  markShowTitleSupport(usedShowTitle);
+  markSchemaSupport(useShowTitle, useOrderIndex);
   return (data ?? []).map(mapSection);
 };
 
 const getContentSectionById = async (id: string): Promise<ContentSection> => {
-  let usedShowTitle = supportsShowTitleColumn !== false;
-  let data: SectionRow | null = null;
-  let error: { message?: string | null; details?: string | null } | null = null;
-  {
-    const response = await supabase
-      .from('content_sections')
-      .select(
-        usedShowTitle
-          ? 'id, page_section_id, title, show_title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
-          : 'id, page_section_id, title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
-      )
-      .eq('id', id)
-      .single();
-    data = response.data as SectionRow | null;
-    error = response.error;
+  let useShowTitle = sectionSchemaSupport.showTitle !== false;
+  let useOrderIndex = sectionSchemaSupport.orderIndex !== false;
+  let { data, error } = await getSectionQuery(id, useShowTitle, useOrderIndex);
+
+  if (error && useShowTitle && isMissingColumnError(error, 'show_title')) {
+    sectionSchemaSupport.showTitle = false;
+    useShowTitle = false;
+    ({ data, error } = await getSectionQuery(id, useShowTitle, useOrderIndex));
   }
-  if (error && usedShowTitle && isMissingShowTitleError(error)) {
-    supportsShowTitleColumn = false;
-    usedShowTitle = false;
-    const response = await supabase
-      .from('content_sections')
-      .select(
-        'id, page_section_id, title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
-      )
-      .eq('id', id)
-      .single();
-    data = response.data as SectionRow | null;
-    error = response.error;
+  if (error && useOrderIndex && isMissingColumnError(error, 'order_index')) {
+    sectionSchemaSupport.orderIndex = false;
+    useOrderIndex = false;
+    ({ data, error } = await getSectionQuery(id, useShowTitle, useOrderIndex));
   }
   if (error || !data) {
     throw error ?? new Error('Failed to load section.');
   }
-  markShowTitleSupport(usedShowTitle);
+  markSchemaSupport(useShowTitle, useOrderIndex);
   return mapSection(data);
 };
 
@@ -177,16 +239,19 @@ export const createContentSection = async (input: {
   ownerId: string;
   ownerName: string;
   showTitle?: boolean;
+  orderIndex?: number;
   showAuthor?: boolean;
   showPublishDate?: boolean;
   publishDate?: string | null;
   editorIds?: string[];
 }): Promise<ContentSection> => {
-  let usedShowTitle = supportsShowTitleColumn !== false;
+  let useShowTitle = sectionSchemaSupport.showTitle !== false;
+  let useOrderIndex = sectionSchemaSupport.orderIndex !== false;
   const insertPayload: Record<string, unknown> = {
     page_section_id: input.pageSectionId,
     title: input.title,
     show_title: input.showTitle ?? true,
+    order_index: input.orderIndex ?? 0,
     owner_id: input.ownerId,
     owner_name: input.ownerName,
     show_author: input.showAuthor ?? false,
@@ -194,43 +259,30 @@ export const createContentSection = async (input: {
     publish_date: input.publishDate ?? null,
     editor_ids: input.editorIds ?? []
   };
-  if (!usedShowTitle) {
+  if (!useShowTitle) {
     delete insertPayload.show_title;
+  }
+  if (!useOrderIndex) {
+    delete insertPayload.order_index;
   }
 
-  let data: SectionRow | null = null;
-  let error: { message?: string | null; details?: string | null } | null = null;
-  {
-    const response = await supabase
-      .from('content_sections')
-      .insert(insertPayload)
-      .select(
-        usedShowTitle
-          ? 'id, page_section_id, title, show_title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
-          : 'id, page_section_id, title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
-      )
-      .single();
-    data = response.data as SectionRow | null;
-    error = response.error;
-  }
-  if (error && usedShowTitle && isMissingShowTitleError(error)) {
-    supportsShowTitleColumn = false;
-    usedShowTitle = false;
+  let { data, error } = await insertSectionQuery(insertPayload, useShowTitle, useOrderIndex);
+  if (error && useShowTitle && isMissingColumnError(error, 'show_title')) {
+    sectionSchemaSupport.showTitle = false;
+    useShowTitle = false;
     delete insertPayload.show_title;
-    const response = await supabase
-      .from('content_sections')
-      .insert(insertPayload)
-      .select(
-        'id, page_section_id, title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
-      )
-      .single();
-    data = response.data as SectionRow | null;
-    error = response.error;
+    ({ data, error } = await insertSectionQuery(insertPayload, useShowTitle, useOrderIndex));
+  }
+  if (error && useOrderIndex && isMissingColumnError(error, 'order_index')) {
+    sectionSchemaSupport.orderIndex = false;
+    useOrderIndex = false;
+    delete insertPayload.order_index;
+    ({ data, error } = await insertSectionQuery(insertPayload, useShowTitle, useOrderIndex));
   }
   if (error || !data) {
     throw error ?? new Error('Failed to create section.');
   }
-  markShowTitleSupport(usedShowTitle);
+  markSchemaSupport(useShowTitle, useOrderIndex);
   return mapSection(data);
 };
 
@@ -239,6 +291,7 @@ export const updateContentSection = async (
   updates: {
     title?: string;
     showTitle?: boolean;
+    orderIndex?: number;
     showAuthor?: boolean;
     showPublishDate?: boolean;
     publishDate?: string | null;
@@ -251,6 +304,9 @@ export const updateContentSection = async (
   }
   if (updates.showTitle !== undefined) {
     updatePayload.show_title = updates.showTitle;
+  }
+  if (updates.orderIndex !== undefined) {
+    updatePayload.order_index = updates.orderIndex;
   }
   if (updates.showAuthor !== undefined) {
     updatePayload.show_author = updates.showAuthor;
@@ -265,52 +321,47 @@ export const updateContentSection = async (
     updatePayload.editor_ids = updates.editorIds;
   }
 
-  let usedShowTitle = supportsShowTitleColumn !== false;
-  if (!usedShowTitle) {
+  let useShowTitle = sectionSchemaSupport.showTitle !== false;
+  let useOrderIndex = sectionSchemaSupport.orderIndex !== false;
+  if (!useShowTitle) {
     delete updatePayload.show_title;
+  }
+  if (!useOrderIndex) {
+    if (updates.orderIndex !== undefined) {
+      throw new Error('Section ordering is not available until the latest migration is applied.');
+    }
+    delete updatePayload.order_index;
   }
   if (Object.keys(updatePayload).length === 0) {
     return getContentSectionById(id);
   }
 
-  let data: SectionRow | null = null;
-  let error: { message?: string | null; details?: string | null } | null = null;
-  {
-    const response = await supabase
-      .from('content_sections')
-      .update(updatePayload)
-      .eq('id', id)
-      .select(
-        usedShowTitle
-          ? 'id, page_section_id, title, show_title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
-          : 'id, page_section_id, title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
-      )
-      .single();
-    data = response.data as SectionRow | null;
-    error = response.error;
-  }
-  if (error && usedShowTitle && isMissingShowTitleError(error)) {
-    supportsShowTitleColumn = false;
-    usedShowTitle = false;
+  let { data, error } = await updateSectionQuery(id, updatePayload, useShowTitle, useOrderIndex);
+  if (error && useShowTitle && isMissingColumnError(error, 'show_title')) {
+    sectionSchemaSupport.showTitle = false;
+    useShowTitle = false;
     delete updatePayload.show_title;
     if (Object.keys(updatePayload).length === 0) {
       return getContentSectionById(id);
     }
-    const response = await supabase
-      .from('content_sections')
-      .update(updatePayload)
-      .eq('id', id)
-      .select(
-        'id, page_section_id, title, owner_id, owner_name, show_author, show_publish_date, publish_date, editor_ids, created_at, updated_at'
-      )
-      .single();
-    data = response.data as SectionRow | null;
-    error = response.error;
+    ({ data, error } = await updateSectionQuery(id, updatePayload, useShowTitle, useOrderIndex));
+  }
+  if (error && useOrderIndex && isMissingColumnError(error, 'order_index')) {
+    sectionSchemaSupport.orderIndex = false;
+    if (updates.orderIndex !== undefined) {
+      throw new Error('Section ordering is not available until the latest migration is applied.');
+    }
+    useOrderIndex = false;
+    delete updatePayload.order_index;
+    if (Object.keys(updatePayload).length === 0) {
+      return getContentSectionById(id);
+    }
+    ({ data, error } = await updateSectionQuery(id, updatePayload, useShowTitle, useOrderIndex));
   }
   if (error || !data) {
     throw error ?? new Error('Failed to update section.');
   }
-  markShowTitleSupport(usedShowTitle);
+  markSchemaSupport(useShowTitle, useOrderIndex);
   return mapSection(data);
 };
 

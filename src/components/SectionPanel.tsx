@@ -23,6 +23,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import HistoryIcon from '@mui/icons-material/History';
 import EditIcon from '@mui/icons-material/Edit';
 import CheckIcon from '@mui/icons-material/Check';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../auth/AuthContext';
 import ContentBlocks from './ContentBlocks';
@@ -80,9 +81,24 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
   const [accessTarget, setAccessTarget] = React.useState<ContentSection | null>(null);
   const [accessSelection, setAccessSelection] = React.useState<string[]>([]);
   const [accessSaving, setAccessSaving] = React.useState(false);
+  const [draggedSectionId, setDraggedSectionId] = React.useState<string | null>(null);
+  const [dragOverSectionId, setDragOverSectionId] = React.useState<string | null>(null);
+  const [reordering, setReordering] = React.useState(false);
 
   const isAdmin = user?.role === 'admin';
   const isStaff = user?.role === 'admin' || user?.role === 'leitung';
+
+  const moveSection = React.useCallback((items: ContentSection[], fromId: string, toId: string): ContentSection[] => {
+    const fromIndex = items.findIndex((item) => item.id === fromId);
+    const toIndex = items.findIndex((item) => item.id === toId);
+    if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) {
+      return items;
+    }
+    const next = [...items];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    return next;
+  }, []);
 
   const formatPublishDate = React.useCallback((value?: string | null) => {
     if (!value) {
@@ -127,6 +143,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
       const created = await createContentSection({
         pageSectionId,
         title: newTitle.trim(),
+        orderIndex: sections.reduce((max, section) => Math.max(max, section.orderIndex), 0) + 1,
         ownerId: user.id,
         ownerName: user.name
       });
@@ -192,6 +209,48 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
     } catch {
       setError('Abschnitt konnte nicht geloescht werden.');
     }
+  };
+
+  const persistSectionOrder = React.useCallback(
+    async (nextSections: ContentSection[], previousSections: ContentSection[]) => {
+      const normalized = nextSections.map((section, index) => ({ ...section, orderIndex: index + 1 }));
+      const originalMap = new Map(previousSections.map((section) => [section.id, section.orderIndex]));
+      const changed = normalized.filter((section) => originalMap.get(section.id) !== section.orderIndex);
+      if (changed.length === 0) {
+        setSections(normalized);
+        return;
+      }
+
+      setSections(normalized);
+      setReordering(true);
+      setError('');
+      try {
+        const updatedSections = await Promise.all(
+          changed.map((section) => updateContentSection(section.id, { orderIndex: section.orderIndex }))
+        );
+        const updatedMap = new Map(updatedSections.map((section) => [section.id, section]));
+        setSections(normalized.map((section) => updatedMap.get(section.id) ?? section));
+      } catch {
+        setSections(previousSections);
+        setError('Reihenfolge konnte nicht gespeichert werden.');
+      } finally {
+        setReordering(false);
+      }
+    },
+    []
+  );
+
+  const handleSectionDrop = async (targetSectionId: string) => {
+    if (!draggedSectionId || draggedSectionId === targetSectionId || reordering) {
+      setDraggedSectionId(null);
+      setDragOverSectionId(null);
+      return;
+    }
+    const previousSections = sections;
+    const nextSections = moveSection(previousSections, draggedSectionId, targetSectionId);
+    setDraggedSectionId(null);
+    setDragOverSectionId(null);
+    await persistSectionOrder(nextSections, previousSections);
   };
 
   const handleStartEdit = (section: ContentSection) => {
@@ -371,6 +430,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
             const isAssignedEditor = user?.id ? section.editorIds.includes(user.id) : false;
             const canEditSection = isAdmin || section.ownerId === user?.id || isAssignedEditor;
             const isEditingSection = Boolean(editingSections[section.id]);
+            const canReorderSection = isStaff && !isEditingSection && !reordering;
             const isSavingSection = Boolean(savingSections[section.id]);
             const titleValue = titleDrafts[section.id] ?? section.title;
             const metaDraft = metaDrafts[section.id] ?? {
@@ -389,7 +449,37 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
               );
             }
             return (
-              <Box key={section.id} sx={{ borderRadius: 3, border: '1px solid rgba(0,0,0,0.08)', p: 2 }}>
+              <Box
+                key={section.id}
+                onDragOver={(event) => {
+                  if (!draggedSectionId || draggedSectionId === section.id || !isStaff) {
+                    return;
+                  }
+                  event.preventDefault();
+                  if (dragOverSectionId !== section.id) {
+                    setDragOverSectionId(section.id);
+                  }
+                }}
+                onDrop={async (event) => {
+                  if (!isStaff) {
+                    return;
+                  }
+                  event.preventDefault();
+                  await handleSectionDrop(section.id);
+                }}
+                onDragLeave={() => {
+                  if (dragOverSectionId === section.id) {
+                    setDragOverSectionId(null);
+                  }
+                }}
+                sx={{
+                  borderRadius: 3,
+                  border: draggedSectionId && dragOverSectionId === section.id ? '1px solid #0088ff' : '1px solid rgba(0,0,0,0.08)',
+                  p: 2,
+                  bgcolor: draggedSectionId === section.id ? 'rgba(0, 136, 255, 0.04)' : 'transparent',
+                  transition: 'border-color 120ms ease, background-color 120ms ease'
+                }}
+              >
                 <Box
                   sx={{
                     display: 'flex',
@@ -400,112 +490,141 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                     flexWrap: 'wrap'
                   }}
                 >
-                  <Box sx={{ flex: 1, minWidth: 220 }}>
-                    {isEditingSection ? (
-                      <Box sx={{ display: 'grid', gap: 1.5 }}>
-                        <TextField
-                          value={titleValue}
-                          onChange={(event) =>
-                            setTitleDrafts((prev) => ({ ...prev, [section.id]: event.target.value }))
-                          }
-                          size="small"
-                          fullWidth
-                        />
-                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
-                          <FormControlLabel
-                            control={
-                              <Checkbox
-                                checked={metaDraft.showTitle}
-                                onChange={(event) =>
-                                  setMetaDrafts((prev) => ({
-                                    ...prev,
-                                    [section.id]: {
-                                      ...metaDraft,
-                                      showTitle: event.target.checked
-                                    }
-                                  }))
-                                }
-                              />
-                            }
-                            label="Ueberschrift anzeigen"
-                          />
-                          <FormControlLabel
-                            control={
-                              <Checkbox
-                                checked={metaDraft.showAuthor}
-                                onChange={(event) =>
-                                  setMetaDrafts((prev) => ({
-                                    ...prev,
-                                    [section.id]: {
-                                      ...metaDraft,
-                                      showAuthor: event.target.checked
-                                    }
-                                  }))
-                                }
-                              />
-                            }
-                            label="Autor anzeigen"
-                          />
-                          <FormControlLabel
-                            control={
-                              <Checkbox
-                                checked={metaDraft.showPublishDate}
-                                onChange={(event) =>
-                                  setMetaDrafts((prev) => ({
-                                    ...prev,
-                                    [section.id]: {
-                                      ...metaDraft,
-                                      showPublishDate: event.target.checked
-                                    }
-                                  }))
-                                }
-                              />
-                            }
-                            label="Veroeffentlichungsdatum anzeigen"
-                          />
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, flex: 1, minWidth: 220 }}>
+                    {canReorderSection ? (
+                      <Box
+                        component="span"
+                        draggable
+                        onDragStart={(event: React.DragEvent<HTMLSpanElement>) => {
+                          setDraggedSectionId(section.id);
+                          setDragOverSectionId(section.id);
+                          event.dataTransfer.effectAllowed = 'move';
+                          event.dataTransfer.setData('text/plain', section.id);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedSectionId(null);
+                          setDragOverSectionId(null);
+                        }}
+                        sx={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: 'text.secondary',
+                          cursor: 'grab',
+                          pt: 0.25
+                        }}
+                        aria-label="Abschnitt verschieben"
+                      >
+                        <DragIndicatorIcon fontSize="small" />
+                      </Box>
+                    ) : null}
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      {isEditingSection ? (
+                        <Box sx={{ display: 'grid', gap: 1.5 }}>
                           <TextField
-                            label="Veroeffentlichungsdatum"
-                            type="date"
-                            value={metaDraft.publishDate}
+                            value={titleValue}
                             onChange={(event) =>
-                              setMetaDrafts((prev) => ({
-                                ...prev,
-                                [section.id]: {
-                                  ...metaDraft,
-                                  publishDate: event.target.value
-                                }
-                              }))
+                              setTitleDrafts((prev) => ({ ...prev, [section.id]: event.target.value }))
                             }
                             size="small"
-                            InputLabelProps={{ shrink: true }}
-                            disabled={!metaDraft.showPublishDate}
+                            fullWidth
                           />
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
+                            <FormControlLabel
+                              control={
+                                <Checkbox
+                                  checked={metaDraft.showTitle}
+                                  onChange={(event) =>
+                                    setMetaDrafts((prev) => ({
+                                      ...prev,
+                                      [section.id]: {
+                                        ...metaDraft,
+                                        showTitle: event.target.checked
+                                      }
+                                    }))
+                                  }
+                                />
+                              }
+                              label="Ueberschrift anzeigen"
+                            />
+                            <FormControlLabel
+                              control={
+                                <Checkbox
+                                  checked={metaDraft.showAuthor}
+                                  onChange={(event) =>
+                                    setMetaDrafts((prev) => ({
+                                      ...prev,
+                                      [section.id]: {
+                                        ...metaDraft,
+                                        showAuthor: event.target.checked
+                                      }
+                                    }))
+                                  }
+                                />
+                              }
+                              label="Autor anzeigen"
+                            />
+                            <FormControlLabel
+                              control={
+                                <Checkbox
+                                  checked={metaDraft.showPublishDate}
+                                  onChange={(event) =>
+                                    setMetaDrafts((prev) => ({
+                                      ...prev,
+                                      [section.id]: {
+                                        ...metaDraft,
+                                        showPublishDate: event.target.checked
+                                      }
+                                    }))
+                                  }
+                                />
+                              }
+                              label="Veroeffentlichungsdatum anzeigen"
+                            />
+                            <TextField
+                              label="Veroeffentlichungsdatum"
+                              type="date"
+                              value={metaDraft.publishDate}
+                              onChange={(event) =>
+                                setMetaDrafts((prev) => ({
+                                  ...prev,
+                                  [section.id]: {
+                                    ...metaDraft,
+                                    publishDate: event.target.value
+                                  }
+                                }))
+                              }
+                              size="small"
+                              InputLabelProps={{ shrink: true }}
+                              disabled={!metaDraft.showPublishDate}
+                            />
+                          </Box>
                         </Box>
-                      </Box>
-                    ) : (
-                      <>
-                        {section.showTitle ? (
-                          <Typography variant="h5" sx={{ fontWeight: 700 }}>
-                            {section.title}
-                          </Typography>
-                        ) : null}
-                        {publishedMeta.length > 0 ? (
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                            {publishedMeta.join(' | ')}
-                          </Typography>
-                        ) : null}
-                        {isStaff && !section.showTitle ? (
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                            Interne Ueberschrift: {section.title}
-                          </Typography>
-                        ) : null}
-                        {isStaff && !section.showAuthor ? (
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                            Autor (intern): {section.ownerName}
-                          </Typography>
-                        ) : null}
-                      </>
-                    )}
+                      ) : (
+                        <>
+                          {section.showTitle ? (
+                            <Typography variant="h5" sx={{ fontWeight: 700 }}>
+                              {section.title}
+                            </Typography>
+                          ) : null}
+                          {publishedMeta.length > 0 ? (
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                              {publishedMeta.join(' | ')}
+                            </Typography>
+                          ) : null}
+                          {isStaff && !section.showTitle ? (
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                              Interne Ueberschrift: {section.title}
+                            </Typography>
+                          ) : null}
+                          {isStaff && !section.showAuthor ? (
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                              Autor (intern): {section.ownerName}
+                            </Typography>
+                          ) : null}
+                        </>
+                      )}
+                    </Box>
                   </Box>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     {canEditSection ? (
