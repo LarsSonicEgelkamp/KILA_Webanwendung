@@ -259,11 +259,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const deleteUser = async (id: string): Promise<AuthResult> => {
     const targetUser = users.find((item) => item.id === id);
-    const { error } = await supabase.from('profiles').delete().eq('id', id);
-    if (error) {
+    const { data, error } = await supabase.from('profiles').delete().eq('id', id).select('id').maybeSingle();
+    if (error || !data) {
       return { ok: false, error: 'server_error' };
     }
-    await refreshUsers();
+
+    if (user?.id === id) {
+      setUser(null);
+      setUsers([]);
+    } else {
+      setUsers((prev) => prev.filter((item) => item.id !== id));
+    }
 
     if (user && targetUser) {
       const changeDetails = [
@@ -285,6 +291,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch {
         // Ignore notification failures to keep deletion flow non-blocking.
       }
+    }
+
+    if (user?.id !== id && (user?.role === 'admin' || user?.role === 'leitung')) {
+      void refreshUsers();
     }
 
     return { ok: true };
